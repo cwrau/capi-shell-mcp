@@ -1,8 +1,8 @@
 management_clusters:
-  - name: prod
+  prod:
     kubeconfig: $XDG_CONFIG_HOME/kube/prod-mgmt.yaml
 
-  - name: dev
+  dev:
     kubeconfig: $XDG_CONFIG_HOME/kube/dev-mgmt.yaml
     sshuttle_host: user@bastion.example.com  # per-cluster override
 

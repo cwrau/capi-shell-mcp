@@ -22,7 +22,7 @@ export interface CacheConfig {
 }
 
 export interface AppConfig {
-  management_clusters: ManagementClusterConfig[];
+  management_clusters: Record<string, ManagementClusterConfig>;
   transforms?: KubeconfigTransforms;
   custom_fields?: Record<string, string>;
   sshuttle_host?: string;
@@ -64,27 +64,29 @@ function parseCustomFields(raw: unknown): Record<string, string> | undefined {
 export function loadConfig(): AppConfig {
   const raw = load(fs.readFileSync(configPath(), 'utf8')) as Record<string, unknown>;
 
-  if (!Array.isArray(raw?.management_clusters) || raw.management_clusters.length === 0) {
-    throw new Error('config: management_clusters must be a non-empty array');
+  if (
+    typeof raw?.management_clusters !== 'object'
+    || raw.management_clusters === null
+    || Array.isArray(raw.management_clusters)
+    || Object.keys(raw.management_clusters).length === 0
+  ) {
+    throw new Error('config: management_clusters must be a non-empty map of name to config');
   }
 
-  const management_clusters: ManagementClusterConfig[] = (raw.management_clusters as unknown[]).map(
-    (c, i) => {
-      if (typeof c !== 'object' || c === null)
-        throw new Error(`config: management_clusters[${i}] must be an object`);
-      const obj = c as Record<string, unknown>;
-      if (typeof obj.name !== 'string')
-        throw new Error(`config: management_clusters[${i}].name must be a string`);
-      if (typeof obj.kubeconfig !== 'string')
-        throw new Error(`config: management_clusters[${i}].kubeconfig must be a string`);
-      return {
-        name: obj.name,
-        kubeconfig: expandEnv(obj.kubeconfig),
-        context: typeof obj.context === 'string' ? obj.context : undefined,
-        sshuttle_host: typeof obj.sshuttle_host === 'string' ? expandEnv(obj.sshuttle_host) : undefined,
-      };
-    },
-  );
+  const management_clusters: Record<string, ManagementClusterConfig> = {};
+  for (const [name, c] of Object.entries(raw.management_clusters as Record<string, unknown>)) {
+    if (typeof c !== 'object' || c === null)
+      throw new Error(`config: management_clusters.${name} must be an object`);
+    const obj = c as Record<string, unknown>;
+    if (typeof obj.kubeconfig !== 'string')
+      throw new Error(`config: management_clusters.${name}.kubeconfig must be a string`);
+    management_clusters[name] = {
+      name,
+      kubeconfig: expandEnv(obj.kubeconfig),
+      context: typeof obj.context === 'string' ? obj.context : undefined,
+      sshuttle_host: typeof obj.sshuttle_host === 'string' ? expandEnv(obj.sshuttle_host) : undefined,
+    };
+  }
 
   const rawCache = ((raw.cache ?? {}) as Partial<CacheConfig>);
   const cache: CacheConfig = {

@@ -18,7 +18,7 @@ import { execWithKubeconfig } from './exec.js';
 import { ensureProxy, refreshProxy } from './proxy.js';
 
 function findMgmt(config: AppConfig, name: string): ManagementClusterConfig | undefined {
-  return config.management_clusters.find((m) => m.name === name);
+  return config.management_clusters[name];
 }
 
 type ClusterWithMgmt = { cluster: CAPOCluster; mgmt: ManagementClusterConfig };
@@ -29,8 +29,8 @@ async function resolveAllClusters(
   managementCluster: string | undefined,
 ): Promise<ClusterWithMgmt[] | null> {
   const targets = managementCluster
-    ? config.management_clusters.filter((m) => m.name === managementCluster)
-    : config.management_clusters;
+    ? (config.management_clusters[managementCluster] ? [config.management_clusters[managementCluster]] : [])
+    : Object.values(config.management_clusters);
   if (managementCluster && targets.length === 0) return null;
 
   const nested = await Promise.all(
@@ -114,8 +114,8 @@ export function buildServer(): McpServer {
     },
     async ({ management_cluster }) => {
       const targets = management_cluster
-        ? config.management_clusters.filter((m) => m.name === management_cluster)
-        : config.management_clusters;
+        ? (config.management_clusters[management_cluster] ? [config.management_clusters[management_cluster]] : [])
+        : Object.values(config.management_clusters);
 
       if (management_cluster && targets.length === 0) {
         return {

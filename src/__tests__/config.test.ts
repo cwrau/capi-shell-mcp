@@ -5,9 +5,9 @@ vi.mock('node:fs');
 
 const VALID_YAML = `
 management_clusters:
-  - name: prod
+  prod:
     kubeconfig: /home/user/.kube/prod.yaml
-  - name: dev
+  dev:
     kubeconfig: /home/user/.kube/dev.yaml
     context: dev-admin
 cache:
@@ -17,7 +17,7 @@ cache:
 
 const MINIMAL_YAML = `
 management_clusters:
-  - name: only
+  only:
     kubeconfig: /tmp/only.yaml
 `;
 
@@ -38,15 +38,15 @@ describe('loadConfig', () => {
   it('parses a valid config with two clusters', async () => {
     const { loadConfig } = await import('../config.js');
     const cfg = loadConfig();
-    expect(cfg.management_clusters).toHaveLength(2);
-    expect(cfg.management_clusters[0]).toMatchObject({ name: 'prod', kubeconfig: '/home/user/.kube/prod.yaml', context: undefined });
-    expect(cfg.management_clusters[1]).toMatchObject({ name: 'dev', kubeconfig: '/home/user/.kube/dev.yaml', context: 'dev-admin' });
+    expect(Object.keys(cfg.management_clusters)).toHaveLength(2);
+    expect(cfg.management_clusters.prod).toMatchObject({ name: 'prod', kubeconfig: '/home/user/.kube/prod.yaml', context: undefined });
+    expect(cfg.management_clusters.dev).toMatchObject({ name: 'dev', kubeconfig: '/home/user/.kube/dev.yaml', context: 'dev-admin' });
   });
 
   it('parses global transforms', async () => {
     vi.mocked(fs.readFileSync).mockReturnValue(`
 management_clusters:
-  - name: prod
+  prod:
     kubeconfig: /tmp/kc.yaml
 transforms:
   users: '{name: .name, user: {exec: {}}}'
@@ -64,7 +64,7 @@ transforms:
   it('parses global custom_fields', async () => {
     vi.mocked(fs.readFileSync).mockReturnValue(`
 management_clusters:
-  - name: prod
+  prod:
     kubeconfig: /tmp/kc.yaml
 custom_fields:
   customer_name: '.metadata.labels["example.com/customer"]'
@@ -82,10 +82,10 @@ custom_fields:
   it('parses global and per-cluster sshuttle_host', async () => {
     vi.mocked(fs.readFileSync).mockReturnValue(`
 management_clusters:
-  - name: prod
+  prod:
     kubeconfig: /tmp/kc.yaml
     sshuttle_host: user@bastion.example.com
-  - name: dev
+  dev:
     kubeconfig: /tmp/kc2.yaml
 sshuttle_host: gateway
 `);
@@ -93,8 +93,8 @@ sshuttle_host: gateway
     const { loadConfig } = await import('../config.js');
     const cfg = loadConfig();
     expect(cfg.sshuttle_host).toBe('gateway');
-    expect(cfg.management_clusters[0].sshuttle_host).toBe('user@bastion.example.com');
-    expect(cfg.management_clusters[1].sshuttle_host).toBeUndefined();
+    expect(cfg.management_clusters.prod.sshuttle_host).toBe('user@bastion.example.com');
+    expect(cfg.management_clusters.dev.sshuttle_host).toBeUndefined();
   });
 
   it('expands env vars in kubeconfig and per-cluster sshuttle_host', async () => {
@@ -102,15 +102,15 @@ sshuttle_host: gateway
     process.env.TEST_BASTION = 'ops@jump.example.com';
     vi.mocked(fs.readFileSync).mockReturnValue(`
 management_clusters:
-  - name: prod
+  prod:
     kubeconfig: $TEST_XDG/kube/prod
     sshuttle_host: $TEST_BASTION
 `);
     vi.resetModules();
     const { loadConfig } = await import('../config.js');
     const cfg = loadConfig();
-    expect(cfg.management_clusters[0].kubeconfig).toBe('/home/test/.config/kube/prod');
-    expect(cfg.management_clusters[0].sshuttle_host).toBe('ops@jump.example.com');
+    expect(cfg.management_clusters.prod.kubeconfig).toBe('/home/test/.config/kube/prod');
+    expect(cfg.management_clusters.prod.sshuttle_host).toBe('ops@jump.example.com');
     delete process.env.TEST_XDG;
     delete process.env.TEST_BASTION;
   });
@@ -119,7 +119,7 @@ management_clusters:
     process.env.TEST_GW = 'gw.example.com';
     vi.mocked(fs.readFileSync).mockReturnValue(`
 management_clusters:
-  - name: prod
+  prod:
     kubeconfig: /tmp/kc.yaml
 sshuttle_host: $TEST_GW
 `);
@@ -134,20 +134,20 @@ sshuttle_host: $TEST_GW
     process.env.TEST_HOME = '/home/test';
     vi.mocked(fs.readFileSync).mockReturnValue(`
 management_clusters:
-  - name: prod
+  prod:
     kubeconfig: \${TEST_HOME}/.kube/prod
 `);
     vi.resetModules();
     const { loadConfig } = await import('../config.js');
     const cfg = loadConfig();
-    expect(cfg.management_clusters[0].kubeconfig).toBe('/home/test/.kube/prod');
+    expect(cfg.management_clusters.prod.kubeconfig).toBe('/home/test/.kube/prod');
     delete process.env.TEST_HOME;
   });
 
   it('sets optional fields to undefined when absent', async () => {
     const { loadConfig } = await import('../config.js');
     const cfg = loadConfig();
-    expect(cfg.management_clusters[0].sshuttle_host).toBeUndefined();
+    expect(cfg.management_clusters.prod.sshuttle_host).toBeUndefined();
     expect(cfg.transforms).toBeUndefined();
     expect(cfg.custom_fields).toBeUndefined();
     expect(cfg.sshuttle_host).toBeUndefined();

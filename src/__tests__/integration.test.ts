@@ -238,12 +238,12 @@ describe('env var expansion in config', () => {
     process.env._TEST_KC_DIR = '/tmp/kube';
     vi.mocked(fs.readFileSync).mockReturnValue(`
 management_clusters:
-  - name: prod
+  prod:
     kubeconfig: $_TEST_KC_DIR/prod
 `);
     vi.resetModules();
     const { loadConfig } = await import('../config.js');
-    expect(loadConfig().management_clusters[0].kubeconfig).toBe('/tmp/kube/prod');
+    expect(loadConfig().management_clusters.prod.kubeconfig).toBe('/tmp/kube/prod');
     delete process.env._TEST_KC_DIR;
   });
 
@@ -251,12 +251,12 @@ management_clusters:
     process.env._TEST_KC_DIR = '/tmp/kube';
     vi.mocked(fs.readFileSync).mockReturnValue(`
 management_clusters:
-  - name: prod
+  prod:
     kubeconfig: \${_TEST_KC_DIR}/prod
 `);
     vi.resetModules();
     const { loadConfig } = await import('../config.js');
-    expect(loadConfig().management_clusters[0].kubeconfig).toBe('/tmp/kube/prod');
+    expect(loadConfig().management_clusters.prod.kubeconfig).toBe('/tmp/kube/prod');
     delete process.env._TEST_KC_DIR;
   });
 
@@ -265,12 +265,12 @@ management_clusters:
     process.env._TEST_SUFFIX = 'mgmt';
     vi.mocked(fs.readFileSync).mockReturnValue(`
 management_clusters:
-  - name: prod
+  prod:
     kubeconfig: $_TEST_BASE/.config/kube/$_TEST_SUFFIX
 `);
     vi.resetModules();
     const { loadConfig } = await import('../config.js');
-    expect(loadConfig().management_clusters[0].kubeconfig).toBe('/home/test/.config/kube/mgmt');
+    expect(loadConfig().management_clusters.prod.kubeconfig).toBe('/home/test/.config/kube/mgmt');
     delete process.env._TEST_BASE;
     delete process.env._TEST_SUFFIX;
   });
@@ -279,31 +279,31 @@ management_clusters:
     process.env._TEST_BASTION = 'jump.internal';
     vi.mocked(fs.readFileSync).mockReturnValue(`
 management_clusters:
-  - name: prod
+  prod:
     kubeconfig: /tmp/kc
     sshuttle_host: ops@$_TEST_BASTION
 `);
     vi.resetModules();
     const { loadConfig } = await import('../config.js');
-    expect(loadConfig().management_clusters[0].sshuttle_host).toBe('ops@jump.internal');
+    expect(loadConfig().management_clusters.prod.sshuttle_host).toBe('ops@jump.internal');
     delete process.env._TEST_BASTION;
   });
 
   it('replaces undefined vars with empty string', async () => {
     vi.mocked(fs.readFileSync).mockReturnValue(`
 management_clusters:
-  - name: prod
+  prod:
     kubeconfig: /base/$_SURELY_UNSET_VAR_XYZ/prod
 `);
     vi.resetModules();
     const { loadConfig } = await import('../config.js');
-    expect(loadConfig().management_clusters[0].kubeconfig).toBe('/base//prod');
+    expect(loadConfig().management_clusters.prod.kubeconfig).toBe('/base//prod');
   });
 
   it('does not expand vars in jq expressions (transforms)', async () => {
     vi.mocked(fs.readFileSync).mockReturnValue(`
 management_clusters:
-  - name: prod
+  prod:
     kubeconfig: /tmp/kc
 transforms:
   users: '.name | $__loc__'
@@ -316,7 +316,7 @@ transforms:
   it('does not expand vars in custom_fields expressions', async () => {
     vi.mocked(fs.readFileSync).mockReturnValue(`
 management_clusters:
-  - name: prod
+  prod:
     kubeconfig: /tmp/kc
 custom_fields:
   name: '.metadata.labels["$HOME"]'
