@@ -61,6 +61,17 @@ function parseCustomFields(raw: unknown): Record<string, string> | undefined {
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
+function readSshuttleHost(raw: Record<string, unknown>): string | undefined {
+  const plugins = raw.plugins;
+  if (typeof plugins !== 'object' || plugins === null) return undefined;
+  const proxyPlugin = (plugins as Record<string, unknown>)['api-endpoint-proxy'];
+  if (typeof proxyPlugin !== 'object' || proxyPlugin === null) return undefined;
+  const sshuttle = (proxyPlugin as Record<string, unknown>).sshuttle;
+  if (typeof sshuttle !== 'object' || sshuttle === null) return undefined;
+  const host = (sshuttle as Record<string, unknown>).host;
+  return typeof host === 'string' ? expandEnv(host) : undefined;
+}
+
 export function loadConfig(): AppConfig {
   const raw = load(fs.readFileSync(configPath(), 'utf8')) as Record<string, unknown>;
 
@@ -84,7 +95,7 @@ export function loadConfig(): AppConfig {
       name,
       kubeconfig: expandEnv(obj.kubeconfig),
       context: typeof obj.context === 'string' ? obj.context : undefined,
-      sshuttle_host: typeof obj.sshuttle_host === 'string' ? expandEnv(obj.sshuttle_host) : undefined,
+      sshuttle_host: readSshuttleHost(obj),
     };
   }
 
@@ -98,7 +109,7 @@ export function loadConfig(): AppConfig {
     management_clusters,
     transforms: parseTransforms(raw.transforms),
     custom_fields: parseCustomFields(raw.custom_fields),
-    sshuttle_host: typeof raw.sshuttle_host === 'string' ? expandEnv(raw.sshuttle_host) : undefined,
+    sshuttle_host: readSshuttleHost(raw),
     cache,
   };
 }

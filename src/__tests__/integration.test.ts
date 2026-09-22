@@ -281,7 +281,10 @@ management_clusters:
 management_clusters:
   prod:
     kubeconfig: /tmp/kc
-    sshuttle_host: ops@$_TEST_BASTION
+    plugins:
+      api-endpoint-proxy:
+        sshuttle:
+          host: ops@$_TEST_BASTION
 `);
     vi.resetModules();
     const { loadConfig } = await import('../config.js');

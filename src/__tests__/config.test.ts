@@ -79,15 +79,21 @@ custom_fields:
     });
   });
 
-  it('parses global and per-cluster sshuttle_host', async () => {
+  it('parses global and per-cluster sshuttle_host from plugins.api-endpoint-proxy', async () => {
     vi.mocked(fs.readFileSync).mockReturnValue(`
 management_clusters:
   prod:
     kubeconfig: /tmp/kc.yaml
-    sshuttle_host: user@bastion.example.com
+    plugins:
+      api-endpoint-proxy:
+        sshuttle:
+          host: user@bastion.example.com
   dev:
     kubeconfig: /tmp/kc2.yaml
-sshuttle_host: gateway
+plugins:
+  api-endpoint-proxy:
+    sshuttle:
+      host: gateway
 `);
     vi.resetModules();
     const { loadConfig } = await import('../config.js');
@@ -104,7 +110,10 @@ sshuttle_host: gateway
 management_clusters:
   prod:
     kubeconfig: $TEST_XDG/kube/prod
-    sshuttle_host: $TEST_BASTION
+    plugins:
+      api-endpoint-proxy:
+        sshuttle:
+          host: $TEST_BASTION
 `);
     vi.resetModules();
     const { loadConfig } = await import('../config.js');
@@ -121,7 +130,10 @@ management_clusters:
 management_clusters:
   prod:
     kubeconfig: /tmp/kc.yaml
-sshuttle_host: $TEST_GW
+plugins:
+  api-endpoint-proxy:
+    sshuttle:
+      host: $TEST_GW
 `);
     vi.resetModules();
     const { loadConfig } = await import('../config.js');

@@ -4,13 +4,19 @@ management_clusters:
 
   dev:
     kubeconfig: $XDG_CONFIG_HOME/kube/dev-mgmt.yaml
-    sshuttle_host: user@bastion.example.com  # per-cluster override
+    plugins:
+      api-endpoint-proxy:
+        sshuttle:
+          host: user@bastion.example.com  # per-cluster override
 
   # Optional per-cluster overrides:
   # context: prod-admin        # restrict to one context
-  # sshuttle_host: ...         # overrides global sshuttle_host
+  # plugins.api-endpoint-proxy.sshuttle.host: ... # overrides global sshuttle host
 
-sshuttle_host: gateway  # global fallback for all clusters
+plugins:
+  api-endpoint-proxy:
+    sshuttle:
+      host: gateway  # global fallback for all clusters
 
 transforms:
   users: >-
