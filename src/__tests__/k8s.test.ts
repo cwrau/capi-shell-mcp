@@ -64,7 +64,7 @@ describe('listClustersForContext', () => {
       { management_cluster: 'prod', context: 'ctx-a', namespace: 'ns-2', name: 'cluster-2' },
     ]);
     expect(stubs.customObjects.listCustomObjectForAllNamespaces).toHaveBeenCalledWith(
-      expect.objectContaining({ group: 'cluster.x-k8s.io', version: 'v1beta1', plural: 'clusters' }),
+      expect.objectContaining({ group: 'cluster.x-k8s.io', version: 'v1beta1', resourcePlural: 'clusters' }),
     );
   });
 

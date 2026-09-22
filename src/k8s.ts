@@ -44,7 +44,7 @@ export async function listClustersForContext(
   const result = await api.listCustomObjectForAllNamespaces({
     group: CLUSTER_GROUP,
     version: CLUSTER_VERSION,
-    plural: CLUSTER_PLURAL,
+    resourcePlural: CLUSTER_PLURAL,
   }) as { items: Array<{ metadata: { name: string; namespace: string } }> };
 
   const clusters: CAPICluster[] = result.items.map((item) => ({
