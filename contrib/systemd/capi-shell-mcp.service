@@ -1,0 +1,16 @@
+# Template only — not installed automatically.
+# Install: mkdir -p ~/.config/systemd/user && cp contrib/systemd/capi-shell-mcp*.{service,path} ~/.config/systemd/user/
+# Then:    systemctl --user daemon-reload && systemctl --user enable --now capi-shell-mcp.service capi-shell-mcp-config.path
+# Adjust ExecStart's path below to wherever this repo (or its `npm run build` output) actually lives.
+
+[Unit]
+Description=capi-shell-mcp persistent MCP daemon
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/node %h/projects/capi-shell-mcp/dist/index.js
+Restart=on-failure
+Environment=CAPI_SHELL_MCP_CONFIG=%h/.config/capi-shell/config.yaml
+
+[Install]
+WantedBy=default.target

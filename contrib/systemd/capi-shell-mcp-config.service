@@ -1,0 +1,8 @@
+# Template only — triggered by capi-shell-mcp-config.path, not started directly.
+
+[Unit]
+Description=Restart capi-shell-mcp after a config change
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl --user restart capi-shell-mcp.service

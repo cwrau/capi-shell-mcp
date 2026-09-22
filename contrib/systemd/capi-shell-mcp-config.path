@@ -1,0 +1,13 @@
+# Template only — see capi-shell-mcp.service for install steps.
+# Watches the shared capi-shell config file; on change, restarts the daemon
+# to pick up the new config (capi-shell-mcp has no in-process hot-reload).
+
+[Unit]
+Description=Watch capi-shell config for changes
+
+[Path]
+PathModified=%h/.config/capi-shell/config.yaml
+Unit=capi-shell-mcp-config.service
+
+[Install]
+WantedBy=default.target
