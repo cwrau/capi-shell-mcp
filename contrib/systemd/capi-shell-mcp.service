@@ -8,6 +8,7 @@ Description=capi-shell-mcp persistent MCP daemon
 
 [Service]
 Type=notify
+NotifyAccess=all
 ExecStart=/usr/bin/node %h/projects/capi-shell-mcp/dist/index.js
 Restart=on-failure
 Environment=CAPI_SHELL_MCP_CONFIG=%h/.config/capi-shell/config.yaml
