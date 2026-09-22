@@ -40,11 +40,11 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm prune --omit=dev
-      - name: Strip non-Linux native prebuilds
-        run: |
-          for d in $(find node_modules -type d -name prebuilds); do
-            find "$d" -mindepth 1 -maxdepth 1 -type d ! -name 'linux-*' -exec rm -rf {} +
-          done
+      # bare-fs/bare-path/bare-url (pulled in by tar-fs, only used for `kubectl cp`
+      # support we don't call) gate their native binding behind a `global.Bare`
+      # check that's always false under Node, so the prebuilds are dead weight.
+      - name: Strip unreachable native prebuilds
+        run: find node_modules -type d -name prebuilds -exec rm -rf {} +
       - run: npm pack
       - run: gh release upload "${{ needs.release-please.outputs.tag_name }}" capi-shell-mcp-*.tgz
         env:
