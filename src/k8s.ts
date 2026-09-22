@@ -3,7 +3,7 @@ import * as k8s from '@kubernetes/client-node';
 import { shell } from './shell.js';
 import type { KubeconfigTransforms, ManagementClusterConfig } from './config.js';
 
-export interface CAPOCluster {
+export interface CAPICluster {
   management_cluster: string;
   context: string;
   namespace: string;
@@ -39,7 +39,7 @@ export async function listClustersForContext(
   mgmt: ManagementClusterConfig,
   context: string,
   customFields?: Record<string, string>,
-): Promise<CAPOCluster[]> {
+): Promise<CAPICluster[]> {
   const api = kubeConfigFromFile(mgmt.kubeconfig, context).makeApiClient(k8s.CustomObjectsApi);
   const result = await api.listCustomObjectForAllNamespaces({
     group: CLUSTER_GROUP,
@@ -47,7 +47,7 @@ export async function listClustersForContext(
     plural: CLUSTER_PLURAL,
   }) as { items: Array<{ metadata: { name: string; namespace: string } }> };
 
-  const clusters: CAPOCluster[] = result.items.map((item) => ({
+  const clusters: CAPICluster[] = result.items.map((item) => ({
     management_cluster: mgmt.name,
     context,
     namespace: item.metadata.namespace,
@@ -199,7 +199,7 @@ export async function fetchApiServerInfo(
   return null;
 }
 
-const READONLY_SA_NAME = 'capo-shell-mcp-read-only';
+const READONLY_SA_NAME = 'capi-shell-mcp-read-only';
 const READONLY_NAMESPACE = 'kube-system';
 
 const READONLY_CLUSTER_ROLE: k8s.V1ClusterRole = {

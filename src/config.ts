@@ -32,8 +32,8 @@ export interface AppConfig {
 const DEFAULTS: CacheConfig = { cluster_list_ttl: 300, kubeconfig_ttl: 3600 };
 
 function configPath(): string {
-  return process.env.CAPO_SHELL_MCP_CONFIG
-    ?? path.join(os.homedir(), '.config', 'capo-shell', 'config.yaml');
+  return process.env.CAPI_SHELL_MCP_CONFIG
+    ?? path.join(os.homedir(), '.config', 'capi-shell', 'config.yaml');
 }
 
 function expandEnv(s: string): string {

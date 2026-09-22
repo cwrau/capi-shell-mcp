@@ -27,7 +27,7 @@ describe('loadConfig', () => {
   beforeEach(() => {
     originalEnv = { ...process.env };
     vi.mocked(fs.readFileSync).mockReturnValue(VALID_YAML);
-    delete process.env.CAPO_SHELL_MCP_CONFIG;
+    delete process.env.CAPI_SHELL_MCP_CONFIG;
   });
 
   afterEach(() => {
@@ -176,8 +176,8 @@ management_clusters:
     expect(() => loadConfig()).toThrow(/management_clusters/);
   });
 
-  it('uses CAPO_SHELL_MCP_CONFIG env var for config path', async () => {
-    process.env.CAPO_SHELL_MCP_CONFIG = '/custom/path/config.yaml';
+  it('uses CAPI_SHELL_MCP_CONFIG env var for config path', async () => {
+    process.env.CAPI_SHELL_MCP_CONFIG = '/custom/path/config.yaml';
     vi.resetModules();
     const { loadConfig } = await import('../config.js');
     loadConfig();

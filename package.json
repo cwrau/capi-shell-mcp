@@ -1,10 +1,10 @@
 {
-  "name": "capo-shell-mcp",
+  "name": "capi-shell-mcp",
   "version": "0.4.0",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "capo-shell-mcp": "dist/index.js"
+    "capi-shell-mcp": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",

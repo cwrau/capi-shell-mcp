@@ -19,7 +19,7 @@ export async function execWithKubeconfig(
 
   const tmpFile = path.join(
     os.tmpdir(),
-    `capo-shell-mcp-${Math.random().toString(36).slice(2)}.yaml`,
+    `capi-shell-mcp-${Math.random().toString(36).slice(2)}.yaml`,
   );
 
   await fs.writeFile(tmpFile, workloadKubeconfig, { mode: 0o600 });

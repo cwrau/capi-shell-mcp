@@ -61,6 +61,6 @@ describe('execWithKubeconfig', () => {
     await execWithKubeconfig('kc', { OS_AUTH_URL: 'https://ks.example.com' }, ['true']);
     const env = capturedOpts?.env as NodeJS.ProcessEnv;
     expect(env?.OS_AUTH_URL).toBe('https://ks.example.com');
-    expect(env?.KUBECONFIG).toMatch(/capo-shell-mcp-.*\.yaml$/);
+    expect(env?.KUBECONFIG).toMatch(/capi-shell-mcp-.*\.yaml$/);
   });
 });

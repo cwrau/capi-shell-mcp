@@ -4,7 +4,7 @@ import type { AppConfig, ManagementClusterConfig } from './config.js';
 import { loadConfig } from './config.js';
 import type { CacheStore } from './cache.js';
 import { clusterListKey, createCacheStore, kubeconfigKey } from './cache.js';
-import type { CAPOCluster } from './k8s.js';
+import type { CAPICluster } from './k8s.js';
 import {
   applyKubeconfigTransform,
   createReadOnlyKubeconfig,
@@ -21,7 +21,7 @@ function findMgmt(config: AppConfig, name: string): ManagementClusterConfig | un
   return config.management_clusters[name];
 }
 
-type ClusterWithMgmt = { cluster: CAPOCluster; mgmt: ManagementClusterConfig };
+type ClusterWithMgmt = { cluster: CAPICluster; mgmt: ManagementClusterConfig };
 
 async function resolveAllClusters(
   config: AppConfig,
@@ -95,7 +95,7 @@ export function buildServer(): McpServer {
   const config = loadConfig();
   const cache = createCacheStore(config.cache);
   const server = new McpServer(
-    { name: 'capo-shell-mcp', version: '0.1.0' },
+    { name: 'capi-shell-mcp', version: '0.1.0' },
     {
       instructions:
         'Use list_clusters to discover clusters before calling any other tool — it returns the management_cluster/context/namespace/cluster_name tuple required by all other tools.\n\n' +
@@ -106,7 +106,7 @@ export function buildServer(): McpServer {
 
   server.tool(
     'list_clusters',
-    'List all CAPO workload clusters across configured management clusters. Results cached per management-cluster+context.',
+    'List all CAPI workload clusters across configured management clusters. Results cached per management-cluster+context.',
     {
       management_cluster: z.string().optional().describe(
         'Filter to one management cluster by name. Omit to list all.',
@@ -148,7 +148,7 @@ export function buildServer(): McpServer {
 
   server.tool(
     'get_cluster_kubeconfig',
-    'Return the (transformed) kubeconfig YAML for a CAPO workload cluster. Result is cached. Starts sshuttle proxy if configured.',
+    'Return the (transformed) kubeconfig YAML for a CAPI workload cluster. Result is cached. Starts sshuttle proxy if configured.',
     {
       management_cluster: z.string().describe('Management cluster name (from config).'),
       context: z.string().describe('kubectl context within the management cluster kubeconfig.'),
@@ -212,7 +212,7 @@ export function buildServer(): McpServer {
 
   server.tool(
     'get_cluster_kubeconfig_readonly',
-    'Return a read-only kubeconfig for a CAPO workload cluster using the TokenRequest API. Always applies ServiceAccount capo-shell-mcp-read-only (bound to ClusterRole/view) to the workload cluster. Token lifetime matches kubeconfig_ttl.',
+    'Return a read-only kubeconfig for a CAPI workload cluster using the TokenRequest API. Always applies ServiceAccount capi-shell-mcp-read-only (bound to ClusterRole/view) to the workload cluster. Token lifetime matches kubeconfig_ttl.',
     {
       management_cluster: z.string().describe('Management cluster name (from config).'),
       context: z.string().describe('kubectl context within the management cluster kubeconfig.'),
@@ -237,7 +237,7 @@ export function buildServer(): McpServer {
 
   server.tool(
     'exec_in_cluster_readonly',
-    'Run a command with a read-only kubeconfig for the workload cluster. Always applies ServiceAccount capo-shell-mcp-read-only (bound to ClusterRole/view) via TokenRequest API. No OpenStack credentials are injected.',
+    'Run a command with a read-only kubeconfig for the workload cluster. Always applies ServiceAccount capi-shell-mcp-read-only (bound to ClusterRole/view) via TokenRequest API. No OpenStack credentials are injected.',
     {
       management_cluster: z.string().describe('Management cluster name (from config).'),
       context: z.string().describe('kubectl context within the management cluster kubeconfig.'),
@@ -273,7 +273,7 @@ export function buildServer(): McpServer {
 
   server.tool(
     'exec_in_clusters',
-    'Run a command in parallel across multiple or all CAPO workload clusters. Returns per-cluster results. Kubeconfig is cached; OS credentials are fetched fresh per cluster.',
+    'Run a command in parallel across multiple or all CAPI workload clusters. Returns per-cluster results. Kubeconfig is cached; OS credentials are fetched fresh per cluster.',
     {
       management_cluster: z.string().optional().describe('Filter to one management cluster by name. Omit to target all.'),
       command: z.array(z.string()).min(1).describe('Command + args to run, e.g. ["kubectl","get","nodes"].'),
@@ -313,7 +313,7 @@ export function buildServer(): McpServer {
 
   server.tool(
     'exec_in_clusters_readonly',
-    'Run a command in parallel across multiple or all CAPO workload clusters using read-only kubeconfigs. No OpenStack credentials injected.',
+    'Run a command in parallel across multiple or all CAPI workload clusters using read-only kubeconfigs. No OpenStack credentials injected.',
     {
       management_cluster: z.string().optional().describe('Filter to one management cluster by name. Omit to target all.'),
       command: z.array(z.string()).min(1).describe('Command + args to run, e.g. ["kubectl","get","nodes"].'),

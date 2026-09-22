@@ -283,20 +283,20 @@ users:
 
     expect(stubs.coreV1.createNamespacedServiceAccount).toHaveBeenCalledWith({
       namespace: 'kube-system',
-      body: { metadata: { name: 'capo-shell-mcp-read-only', namespace: 'kube-system' } },
+      body: { metadata: { name: 'capi-shell-mcp-read-only', namespace: 'kube-system' } },
     });
     expect(stubs.rbac.createClusterRole).toHaveBeenCalledWith(
-      expect.objectContaining({ body: expect.objectContaining({ metadata: { name: 'capo-shell-mcp-read-only' } }) }),
+      expect.objectContaining({ body: expect.objectContaining({ metadata: { name: 'capi-shell-mcp-read-only' } }) }),
     );
     expect(stubs.rbac.createClusterRoleBinding).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.objectContaining({
-          roleRef: { apiGroup: 'rbac.authorization.k8s.io', kind: 'ClusterRole', name: 'capo-shell-mcp-read-only' },
+          roleRef: { apiGroup: 'rbac.authorization.k8s.io', kind: 'ClusterRole', name: 'capi-shell-mcp-read-only' },
         }),
       }),
     );
     expect(stubs.coreV1.createNamespacedServiceAccountToken).toHaveBeenCalledWith({
-      name: 'capo-shell-mcp-read-only',
+      name: 'capi-shell-mcp-read-only',
       namespace: 'kube-system',
       body: { spec: { audiences: [], expirationSeconds: 3600 } },
     });
@@ -317,7 +317,7 @@ users:
     await createReadOnlyKubeconfig(adminKcYaml, 3600);
 
     expect(stubs.rbac.replaceClusterRole).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'capo-shell-mcp-read-only' }),
+      expect.objectContaining({ name: 'capi-shell-mcp-read-only' }),
     );
   });
 
@@ -329,7 +329,7 @@ users:
       .mockResolvedValueOnce({});
     stubs.rbac.replaceClusterRoleBinding = vi.fn().mockRejectedValue(
       new ApiException(422, 'Invalid', {
-        message: 'ClusterRoleBinding.rbac.authorization.k8s.io "capo-shell-mcp-read-only" is invalid: roleRef: Invalid value: ...: roleRef is immutable',
+        message: 'ClusterRoleBinding.rbac.authorization.k8s.io "capi-shell-mcp-read-only" is invalid: roleRef: Invalid value: ...: roleRef is immutable',
       }, {}),
     );
     stubs.rbac.deleteClusterRoleBinding = vi.fn().mockResolvedValue({});
@@ -338,9 +338,9 @@ users:
     await createReadOnlyKubeconfig(adminKcYaml, 3600);
 
     expect(stubs.rbac.replaceClusterRoleBinding).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'capo-shell-mcp-read-only' }),
+      expect.objectContaining({ name: 'capi-shell-mcp-read-only' }),
     );
-    expect(stubs.rbac.deleteClusterRoleBinding).toHaveBeenCalledWith({ name: 'capo-shell-mcp-read-only' });
+    expect(stubs.rbac.deleteClusterRoleBinding).toHaveBeenCalledWith({ name: 'capi-shell-mcp-read-only' });
     expect(stubs.rbac.createClusterRoleBinding).toHaveBeenCalledTimes(2);
   });
 

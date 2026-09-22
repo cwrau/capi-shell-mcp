@@ -29,7 +29,7 @@ export class TTLCache<K, V> {
 }
 
 export interface CacheStore {
-  clusterList: TTLCache<string, import('./k8s.js').CAPOCluster[]>;
+  clusterList: TTLCache<string, import('./k8s.js').CAPICluster[]>;
   kubeconfig: TTLCache<string, string>;
 }
 
