@@ -1,9 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { AppConfig, ManagementClusterConfig } from './config.js';
-import { loadConfig } from './config.js';
 import type { CacheStore, CachedKubeconfig } from './cache.js';
-import { clusterListKey, createCacheStore, kubeconfigKey } from './cache.js';
+import { clusterListKey, kubeconfigKey } from './cache.js';
 import type { CAPICluster } from './k8s.js';
 import {
   applyKubeconfigTransform,
@@ -95,9 +94,7 @@ async function cachedKubeconfig(
   return kc;
 }
 
-export function buildServer(): McpServer {
-  const config = loadConfig();
-  const cache = createCacheStore(config.cache);
+export function buildServer(config: AppConfig, cache: CacheStore): McpServer {
   const server = new McpServer(
     { name: 'capi-shell-mcp', version: '0.1.0' },
     {
