@@ -33,7 +33,7 @@ export async function reconcileProxies(kubeconfigTtlSeconds: number): Promise<vo
 
   const { stdout } = await shell.execFile(
     'systemctl',
-    ['--user', 'list-units', `${UNIT_PREFIX}*${UNIT_SUFFIX}`, '--all', '--plain', '--no-legend'],
+    ['--user', 'list-units', `${UNIT_PREFIX}*${UNIT_SUFFIX}`, '--all', '--state=active', '--plain', '--no-legend'],
     {},
   );
 
@@ -48,12 +48,14 @@ export async function reconcileProxies(kubeconfigTtlSeconds: number): Promise<vo
 
     const { stdout: showOut } = await shell.execFile(
       'systemctl',
-      ['--user', 'show', name, '--property=ActiveEnterTimestamp'],
+      ['--user', 'show', name, '--property=ActiveEnterTimestamp', '--timestamp=unix'],
       {},
     );
-    const match = /ActiveEnterTimestamp=(.+)/.exec(showOut);
-    const startedAt = match ? new Date(match[1].trim()) : null;
-    const elapsedSeconds = startedAt ? (Date.now() - startedAt.getTime()) / 1000 : Infinity;
+    const match = /ActiveEnterTimestamp=@(\d+)/.exec(showOut);
+    const startedAt = match ? new Date(Number(match[1]) * 1000) : null;
+    const elapsedSeconds = startedAt && Number.isFinite(startedAt.getTime())
+      ? (Date.now() - startedAt.getTime()) / 1000
+      : Infinity;
     const remaining = kubeconfigTtlSeconds - elapsedSeconds;
 
     if (remaining <= 0) {
@@ -89,7 +91,7 @@ export function killProxy(apiServerIp: string, apiServerPort: string): void {
   clearTimeout(entry.timer);
   proxyStore.delete(key);
   if (entry.kind === 'process') entry.process.kill('SIGTERM');
-  else void stopUnit(entry.unitName);
+  else stopUnit(entry.unitName).catch((err) => { console.error(`failed to stop ${entry.unitName}:`, err); });
 }
 
 export function killAllProxies(): void {
@@ -99,7 +101,17 @@ export function killAllProxies(): void {
     clearTimeout(entry.timer);
     proxyStore.delete(key);
     if (entry.kind === 'process') entry.process.kill('SIGTERM');
-    else void stopUnit(entry.unitName);
+    else stopUnit(entry.unitName).catch((err) => { console.error(`failed to stop ${entry.unitName}:`, err); });
+  }
+}
+
+function killAllProcessProxies(): void {
+  for (const key of [...proxyStore.keys()]) {
+    const entry = proxyStore.get(key);
+    if (!entry || entry.kind !== 'process') continue;
+    clearTimeout(entry.timer);
+    entry.process.kill('SIGTERM');
+    proxyStore.delete(key);
   }
 }
 
@@ -177,6 +189,4 @@ export async function ensureProxy(
   }
 }
 
-process.on('exit', killAllProxies);
-process.on('SIGINT', () => { killAllProxies(); process.exit(0); });
-process.on('SIGTERM', () => { killAllProxies(); process.exit(0); });
+process.on('exit', killAllProcessProxies);

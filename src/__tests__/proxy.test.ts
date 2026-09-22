@@ -257,7 +257,7 @@ describe('reconcileProxies', () => {
         return { stdout: 'capi-shell-api-endpoint-proxy-sshuttle-10.2.0.1:6443.service loaded active running\n', stderr: '' };
       }
       if (bin === 'systemctl' && args[1] === 'show') {
-        return { stdout: `ActiveEnterTimestamp=${startedAt.toUTCString()}\n`, stderr: '' };
+        return { stdout: `ActiveEnterTimestamp=@${Math.floor(startedAt.getTime() / 1000)}\n`, stderr: '' };
       }
       if (bin === 'systemctl' && args[1] === 'stop') {
         return { stdout: '', stderr: '' };
@@ -289,7 +289,7 @@ describe('reconcileProxies', () => {
         return { stdout: 'capi-shell-api-endpoint-proxy-sshuttle-10.2.0.2:6443.service loaded active running\n', stderr: '' };
       }
       if (bin === 'systemctl' && args[1] === 'show') {
-        return { stdout: `ActiveEnterTimestamp=${startedAt.toUTCString()}\n`, stderr: '' };
+        return { stdout: `ActiveEnterTimestamp=@${Math.floor(startedAt.getTime() / 1000)}\n`, stderr: '' };
       }
       if (bin === 'systemctl' && args[1] === 'stop') {
         return { stdout: '', stderr: '' };
