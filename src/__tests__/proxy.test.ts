@@ -1,6 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { proxyShell, ensureProxy, killProxy, killAllProxies, refreshProxy } from '../proxy.js';
+import { shell } from '../shell.js';
+
+// The ambient environment (e.g. a systemd --user session) may already have
+// INVOCATION_ID set, which would make these non-systemd tests spuriously take
+// the systemd-run spawn path. Force it unset for the duration of each test.
+let savedInvocationId: string | undefined;
+
+function suppressInvocationId() {
+  savedInvocationId = process.env.INVOCATION_ID;
+  delete process.env.INVOCATION_ID;
+}
+
+function restoreInvocationId() {
+  if (savedInvocationId === undefined) delete process.env.INVOCATION_ID;
+  else process.env.INVOCATION_ID = savedInvocationId;
+}
 
 function makeFakeProcess() {
   const ee = new EventEmitter() as EventEmitter & {
@@ -18,12 +34,14 @@ describe('ensureProxy', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     killAllProxies();
+    suppressInvocationId();
   });
 
   afterEach(() => {
     killAllProxies();
     vi.restoreAllMocks();
     vi.useRealTimers();
+    restoreInvocationId();
   });
 
   it('starts sshuttle and stores entry', async () => {
@@ -102,12 +120,14 @@ describe('refreshProxy', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     killAllProxies();
+    suppressInvocationId();
   });
 
   afterEach(() => {
     killAllProxies();
     vi.restoreAllMocks();
     vi.useRealTimers();
+    restoreInvocationId();
   });
 
   it('extends proxy TTL', async () => {
@@ -133,12 +153,14 @@ describe('killProxy', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     killAllProxies();
+    suppressInvocationId();
   });
 
   afterEach(() => {
     killAllProxies();
     vi.restoreAllMocks();
     vi.useRealTimers();
+    restoreInvocationId();
   });
 
   it('kills process and removes from store', async () => {
@@ -154,5 +176,56 @@ describe('killProxy', () => {
 
     killProxy('10.0.7.1', '6443');
     expect(fakeProc.kill).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ensureProxy under systemd', () => {
+  const originalInvocationId = process.env.INVOCATION_ID;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    killAllProxies();
+    process.env.INVOCATION_ID = 'test-invocation';
+  });
+
+  afterEach(() => {
+    killAllProxies();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    if (originalInvocationId === undefined) delete process.env.INVOCATION_ID;
+    else process.env.INVOCATION_ID = originalInvocationId;
+  });
+
+  it('spawns via systemd-run with the deterministic unit name', async () => {
+    vi.spyOn(shell, 'execFile').mockResolvedValue({ stdout: '', stderr: '' });
+
+    await ensureProxy('10.1.2.3', '6443', 'user@bastion', 60);
+
+    expect(shell.execFile).toHaveBeenCalledWith(
+      'systemd-run',
+      [
+        '--user',
+        '--unit=capi-shell-api-endpoint-proxy-sshuttle-10.1.2.3:6443.service',
+        '--slice=capi-shell-api-endpoint-proxy.slice',
+        '--',
+        'sshuttle', '-r', 'user@bastion', '10.1.2.3:6443',
+      ],
+      expect.objectContaining({}),
+    );
+  });
+
+  it('tears down via systemctl stop, not ChildProcess#kill', async () => {
+    vi.spyOn(shell, 'execFile').mockResolvedValue({ stdout: '', stderr: '' });
+
+    await ensureProxy('10.1.2.4', '6443', 'user@bastion', 60);
+    vi.mocked(shell.execFile).mockClear();
+
+    killProxy('10.1.2.4', '6443');
+
+    expect(shell.execFile).toHaveBeenCalledWith(
+      'systemctl',
+      ['--user', 'stop', 'capi-shell-api-endpoint-proxy-sshuttle-10.1.2.4:6443.service'],
+      expect.objectContaining({}),
+    );
   });
 });
