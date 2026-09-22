@@ -1,10 +1,3 @@
-# Template only — not installed automatically.
-# Assumes capi-shell-mcp is installed globally (npm install -g capi-shell-mcp,
-# or a distro package) so the `capi-shell-mcp` command is on the system's
-# standard bin search path — not tied to any particular checkout.
-# Install: mkdir -p ~/.config/systemd/user && cp contrib/systemd/capi-shell-mcp*.{service,path} ~/.config/systemd/user/
-# Then:    systemctl --user daemon-reload && systemctl --user enable --now capi-shell-mcp.service capi-shell-mcp-config.path
-
 [Unit]
 Description=capi-shell-mcp persistent MCP daemon
 
