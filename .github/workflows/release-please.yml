@@ -39,6 +39,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - run: npm prune --omit=dev
+      - name: Strip non-Linux native prebuilds
+        run: |
+          for d in $(find node_modules -type d -name prebuilds); do
+            find "$d" -mindepth 1 -maxdepth 1 -type d ! -name 'linux-*' -exec rm -rf {} +
+          done
       - run: npm pack
       - run: gh release upload "${{ needs.release-please.outputs.tag_name }}" capi-shell-mcp-*.tgz
         env:
