@@ -2,3 +2,5 @@ node_modules/
 dist/
 *.yaml
 !config.example.yaml
+.superpowers/
+docs/superpowers/
