@@ -13,7 +13,12 @@ export const proxyShell = {
   },
 };
 
-export function killProxy(key: string): void {
+function targetKey(apiServerIp: string, apiServerPort: string): string {
+  return `${apiServerIp}:${apiServerPort}`;
+}
+
+export function killProxy(apiServerIp: string, apiServerPort: string): void {
+  const key = targetKey(apiServerIp, apiServerPort);
   const entry = proxyStore.get(key);
   if (!entry) return;
   clearTimeout(entry.timer);
@@ -22,27 +27,35 @@ export function killProxy(key: string): void {
 }
 
 export function killAllProxies(): void {
-  for (const key of [...proxyStore.keys()]) killProxy(key);
+  for (const key of [...proxyStore.keys()]) {
+    const entry = proxyStore.get(key);
+    if (!entry) continue;
+    clearTimeout(entry.timer);
+    entry.process.kill('SIGTERM');
+    proxyStore.delete(key);
+  }
 }
 
-export function refreshProxy(key: string, ttlSeconds: number): void {
+export function refreshProxy(apiServerIp: string, apiServerPort: string, ttlSeconds: number): void {
+  const key = targetKey(apiServerIp, apiServerPort);
   const entry = proxyStore.get(key);
   if (!entry) return;
   clearTimeout(entry.timer);
-  entry.timer = setTimeout(() => killProxy(key), ttlSeconds * 1000);
+  entry.timer = setTimeout(() => killProxy(apiServerIp, apiServerPort), ttlSeconds * 1000);
 }
 
 const pendingProxies = new Map<string, Promise<void>>();
 
 export async function ensureProxy(
-  key: string,
-  sshuttleHost: string,
   apiServerIp: string,
   apiServerPort: string,
+  sshuttleHost: string,
   ttlSeconds: number,
 ): Promise<void> {
+  const key = targetKey(apiServerIp, apiServerPort);
+
   if (proxyStore.has(key)) {
-    refreshProxy(key, ttlSeconds);
+    refreshProxy(apiServerIp, apiServerPort, ttlSeconds);
     return;
   }
 
@@ -63,7 +76,7 @@ export async function ensureProxy(
       });
     });
 
-    const killTimer = setTimeout(() => killProxy(key), ttlSeconds * 1000);
+    const killTimer = setTimeout(() => killProxy(apiServerIp, apiServerPort), ttlSeconds * 1000);
     proxyStore.set(key, { process: proc, timer: killTimer });
 
     // If sshuttle exits after startup, remove the dead entry from the store

@@ -28,9 +28,20 @@ export class TTLCache<K, V> {
   }
 }
 
+export interface ProxyTarget {
+  sshuttleHost: string;
+  apiServerIp: string;
+  apiServerPort: string;
+}
+
+export interface CachedKubeconfig {
+  kubeconfig: string;
+  proxyTarget?: ProxyTarget;
+}
+
 export interface CacheStore {
   clusterList: TTLCache<string, import('./k8s.js').CAPICluster[]>;
-  kubeconfig: TTLCache<string, string>;
+  kubeconfig: TTLCache<string, CachedKubeconfig>;
 }
 
 export function clusterListKey(managementCluster: string, context: string): string {

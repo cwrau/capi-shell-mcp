@@ -66,3 +66,22 @@ describe('key helpers', () => {
     );
   });
 });
+
+describe('CacheStore kubeconfig value shape', () => {
+  it('createCacheStore produces a kubeconfig cache that stores {kubeconfig, proxyTarget}', async () => {
+    const { createCacheStore } = await import('../cache.js');
+    const store = createCacheStore({ cluster_list_ttl: 60, kubeconfig_ttl: 60 });
+    store.kubeconfig.set('k', { kubeconfig: 'yaml-content', proxyTarget: { sshuttleHost: 'gw', apiServerIp: '10.0.0.1', apiServerPort: '6443' } });
+    expect(store.kubeconfig.get('k')).toEqual({
+      kubeconfig: 'yaml-content',
+      proxyTarget: { sshuttleHost: 'gw', apiServerIp: '10.0.0.1', apiServerPort: '6443' },
+    });
+  });
+
+  it('accepts an entry with no proxyTarget', async () => {
+    const { createCacheStore } = await import('../cache.js');
+    const store = createCacheStore({ cluster_list_ttl: 60, kubeconfig_ttl: 60 });
+    store.kubeconfig.set('k', { kubeconfig: 'yaml-content' });
+    expect(store.kubeconfig.get('k')).toEqual({ kubeconfig: 'yaml-content' });
+  });
+});

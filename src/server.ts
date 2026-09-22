@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { AppConfig, ManagementClusterConfig } from './config.js';
 import { loadConfig } from './config.js';
-import type { CacheStore } from './cache.js';
+import type { CacheStore, CachedKubeconfig } from './cache.js';
 import { clusterListKey, createCacheStore, kubeconfigKey } from './cache.js';
 import type { CAPICluster } from './k8s.js';
 import {
@@ -70,24 +70,28 @@ async function cachedKubeconfig(
   const cached = cache.kubeconfig.get(key);
 
   if (cached) {
-    if (sshuttleHost) refreshProxy(key, ttlSeconds);
-    return cached;
+    if (cached.proxyTarget) {
+      refreshProxy(cached.proxyTarget.apiServerIp, cached.proxyTarget.apiServerPort, ttlSeconds);
+    }
+    return cached.kubeconfig;
   }
 
   let kc = await fetchWorkloadKubeconfig(mgmt, context, namespace, clusterName);
   if (config.transforms) {
     kc = await applyKubeconfigTransform(kc, config.transforms);
   }
-  cache.kubeconfig.set(key, kc);
 
+  let proxyTarget: CachedKubeconfig['proxyTarget'];
   if (sshuttleHost) {
     const apiServerInfo = await fetchApiServerInfo(mgmt, context, namespace, clusterName);
     if (apiServerInfo) {
       const [apiIp, apiPort] = apiServerInfo;
-      await ensureProxy(key, sshuttleHost, apiIp, apiPort, ttlSeconds);
+      await ensureProxy(apiIp, apiPort, sshuttleHost, ttlSeconds);
+      proxyTarget = { sshuttleHost, apiServerIp: apiIp, apiServerPort: apiPort };
     }
   }
 
+  cache.kubeconfig.set(key, { kubeconfig: kc, proxyTarget });
   return kc;
 }
 

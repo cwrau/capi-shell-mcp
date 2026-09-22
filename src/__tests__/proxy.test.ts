@@ -30,8 +30,7 @@ describe('ensureProxy', () => {
     const fakeProc = makeFakeProcess();
     vi.spyOn(proxyShell, 'spawn').mockReturnValue(fakeProc as never);
 
-    const promise = ensureProxy('key1', 'user@bastion', '10.0.0.1', '6443', 60);
-    // Advance past the 1s startup window
+    const promise = ensureProxy('10.0.0.1', '6443', 'user@bastion', 60);
     await vi.advanceTimersByTimeAsync(1100);
     await promise;
 
@@ -43,12 +42,11 @@ describe('ensureProxy', () => {
     const fakeProc = makeFakeProcess();
     vi.spyOn(proxyShell, 'spawn').mockReturnValue(fakeProc as never);
 
-    const p1 = ensureProxy('key2', 'user@bastion', '10.0.0.1', '6443', 60);
+    const p1 = ensureProxy('10.0.1.1', '6443', 'user@bastion', 60);
     await vi.advanceTimersByTimeAsync(1100);
     await p1;
 
-    // Second call should not spawn again
-    await ensureProxy('key2', 'user@bastion', '10.0.0.1', '6443', 60);
+    await ensureProxy('10.0.1.1', '6443', 'user@bastion', 60);
     expect(proxyShell.spawn).toHaveBeenCalledTimes(1);
   });
 
@@ -56,11 +54,10 @@ describe('ensureProxy', () => {
     const fakeProc = makeFakeProcess();
     vi.spyOn(proxyShell, 'spawn').mockReturnValue(fakeProc as never);
 
-    const p = ensureProxy('key3', 'user@bastion', '10.0.0.1', '6443', 60);
+    const p = ensureProxy('10.0.2.1', '6443', 'user@bastion', 60);
     await vi.advanceTimersByTimeAsync(1100);
     await p;
 
-    // Advance past TTL
     vi.advanceTimersByTime(61_000);
     expect(fakeProc.kill).toHaveBeenCalledWith('SIGTERM');
   });
@@ -69,22 +66,34 @@ describe('ensureProxy', () => {
     const fakeProc = makeFakeProcess();
     vi.spyOn(proxyShell, 'spawn').mockReturnValue(fakeProc as never);
 
-    const promise = ensureProxy('key4', 'user@bastion', '10.0.0.1', '6443', 60);
-    // Simulate sshuttle dying immediately
+    const promise = ensureProxy('10.0.3.1', '6443', 'user@bastion', 60);
     fakeProc.emit('exit', 1);
 
     await expect(promise).rejects.toThrow(/exited early/);
   });
 
-  it('spawns exactly once for two concurrent calls with the same key', async () => {
+  it('spawns exactly once for two concurrent calls with the same target', async () => {
     const fakeProc = makeFakeProcess();
     vi.spyOn(proxyShell, 'spawn').mockReturnValue(fakeProc as never);
 
-    const p1 = ensureProxy('key-race', 'user@bastion', '10.0.0.1', '6443', 60);
-    const p2 = ensureProxy('key-race', 'user@bastion', '10.0.0.1', '6443', 60);
+    const p1 = ensureProxy('10.0.4.1', '6443', 'user@bastion', 60);
+    const p2 = ensureProxy('10.0.4.1', '6443', 'user@bastion', 60);
     await vi.advanceTimersByTimeAsync(1100);
     await Promise.all([p1, p2]);
 
+    expect(proxyShell.spawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares one proxy across different sshuttleHost values for the same target', async () => {
+    const fakeProc = makeFakeProcess();
+    vi.spyOn(proxyShell, 'spawn').mockReturnValue(fakeProc as never);
+
+    const p1 = ensureProxy('10.0.5.1', '6443', 'user@bastion-a', 60);
+    await vi.advanceTimersByTimeAsync(1100);
+    await p1;
+
+    // Different sshuttleHost, same target — dedup wins, no second spawn.
+    await ensureProxy('10.0.5.1', '6443', 'user@bastion-b', 60);
     expect(proxyShell.spawn).toHaveBeenCalledTimes(1);
   });
 });
@@ -105,19 +114,16 @@ describe('refreshProxy', () => {
     const fakeProc = makeFakeProcess();
     vi.spyOn(proxyShell, 'spawn').mockReturnValue(fakeProc as never);
 
-    const p = ensureProxy('key5', 'user@bastion', '10.0.0.1', '6443', 60);
+    const p = ensureProxy('10.0.6.1', '6443', 'user@bastion', 60);
     await vi.advanceTimersByTimeAsync(1100);
     await p;
 
-    // After 50s, refresh the timer
     vi.advanceTimersByTime(50_000);
-    refreshProxy('key5', 60);
+    refreshProxy('10.0.6.1', '6443', 60);
 
-    // At 100s total (50s after refresh) proxy should still be alive
     vi.advanceTimersByTime(50_000);
     expect(fakeProc.kill).not.toHaveBeenCalled();
 
-    // At 110s total (60s after last refresh) it should be killed
     vi.advanceTimersByTime(10_000);
     expect(fakeProc.kill).toHaveBeenCalledWith('SIGTERM');
   });
@@ -139,15 +145,14 @@ describe('killProxy', () => {
     const fakeProc = makeFakeProcess();
     vi.spyOn(proxyShell, 'spawn').mockReturnValue(fakeProc as never);
 
-    const p = ensureProxy('key6', 'user@bastion', '10.0.0.1', '6443', 60);
+    const p = ensureProxy('10.0.7.1', '6443', 'user@bastion', 60);
     await vi.advanceTimersByTimeAsync(1100);
     await p;
 
-    killProxy('key6');
+    killProxy('10.0.7.1', '6443');
     expect(fakeProc.kill).toHaveBeenCalledWith('SIGTERM');
 
-    // Calling again should be a no-op
-    killProxy('key6');
+    killProxy('10.0.7.1', '6443');
     expect(fakeProc.kill).toHaveBeenCalledTimes(1);
   });
 });
