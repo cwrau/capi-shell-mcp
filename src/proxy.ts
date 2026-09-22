@@ -17,6 +17,59 @@ async function stopUnit(name: string): Promise<void> {
   await shell.execFile('systemctl', ['--user', 'stop', name], {});
 }
 
+const UNIT_PREFIX = 'capi-shell-api-endpoint-proxy-sshuttle-';
+const UNIT_SUFFIX = '.service';
+
+function parseTarget(unit: string): { apiServerIp: string; apiServerPort: string } | null {
+  if (!unit.startsWith(UNIT_PREFIX) || !unit.endsWith(UNIT_SUFFIX)) return null;
+  const target = unit.slice(UNIT_PREFIX.length, -UNIT_SUFFIX.length);
+  const lastColon = target.lastIndexOf(':');
+  if (lastColon === -1) return null;
+  return { apiServerIp: target.slice(0, lastColon), apiServerPort: target.slice(lastColon + 1) };
+}
+
+export async function reconcileProxies(kubeconfigTtlSeconds: number): Promise<void> {
+  if (!isUnderSystemd()) return;
+
+  const { stdout } = await shell.execFile(
+    'systemctl',
+    ['--user', 'list-units', `${UNIT_PREFIX}*${UNIT_SUFFIX}`, '--all', '--plain', '--no-legend'],
+    {},
+  );
+
+  const unitNames = stdout
+    .split('\n')
+    .map((line) => line.trim().split(/\s+/)[0])
+    .filter((name): name is string => Boolean(name));
+
+  for (const name of unitNames) {
+    const target = parseTarget(name);
+    if (!target) continue;
+
+    const { stdout: showOut } = await shell.execFile(
+      'systemctl',
+      ['--user', 'show', name, '--property=ActiveEnterTimestamp'],
+      {},
+    );
+    const match = /ActiveEnterTimestamp=(.+)/.exec(showOut);
+    const startedAt = match ? new Date(match[1].trim()) : null;
+    const elapsedSeconds = startedAt ? (Date.now() - startedAt.getTime()) / 1000 : Infinity;
+    const remaining = kubeconfigTtlSeconds - elapsedSeconds;
+
+    if (remaining <= 0) {
+      await stopUnit(name);
+      continue;
+    }
+
+    const key = targetKey(target.apiServerIp, target.apiServerPort);
+    const killTimer = setTimeout(
+      () => killProxy(target.apiServerIp, target.apiServerPort),
+      remaining * 1000,
+    );
+    proxyStore.set(key, { kind: 'systemd', unitName: name, timer: killTimer });
+  }
+}
+
 const proxyStore = new Map<string, ProxyEntry>();
 
 export const proxyShell = {

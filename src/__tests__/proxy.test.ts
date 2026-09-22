@@ -229,3 +229,91 @@ describe('ensureProxy under systemd', () => {
     );
   });
 });
+
+describe('reconcileProxies', () => {
+  const originalInvocationId = process.env.INVOCATION_ID;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    killAllProxies();
+    process.env.INVOCATION_ID = 'test-invocation';
+  });
+
+  afterEach(() => {
+    killAllProxies();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+    if (originalInvocationId === undefined) delete process.env.INVOCATION_ID;
+    else process.env.INVOCATION_ID = originalInvocationId;
+  });
+
+  it('adopts an existing unit and computes remaining TTL from ActiveEnterTimestamp', async () => {
+    const now = new Date('2026-09-22T12:00:00Z');
+    vi.setSystemTime(now);
+    const startedAt = new Date(now.getTime() - 40_000); // started 40s ago
+
+    vi.spyOn(shell, 'execFile').mockImplementation(async (bin, args) => {
+      if (bin === 'systemctl' && args[1] === 'list-units') {
+        return { stdout: 'capi-shell-api-endpoint-proxy-sshuttle-10.2.0.1:6443.service loaded active running\n', stderr: '' };
+      }
+      if (bin === 'systemctl' && args[1] === 'show') {
+        return { stdout: `ActiveEnterTimestamp=${startedAt.toUTCString()}\n`, stderr: '' };
+      }
+      if (bin === 'systemctl' && args[1] === 'stop') {
+        return { stdout: '', stderr: '' };
+      }
+      throw new Error(`unexpected call: ${bin} ${args.join(' ')}`);
+    });
+
+    const { reconcileProxies, killProxy } = await import('../proxy.js');
+    await reconcileProxies(60);
+
+    vi.mocked(shell.execFile).mockClear();
+    // Remaining TTL is ~20s (60 - 40 elapsed); advance past it and expect teardown.
+    vi.advanceTimersByTime(21_000);
+    expect(shell.execFile).toHaveBeenCalledWith(
+      'systemctl',
+      ['--user', 'stop', 'capi-shell-api-endpoint-proxy-sshuttle-10.2.0.1:6443.service'],
+      expect.objectContaining({}),
+    );
+    killProxy('10.2.0.1', '6443'); // no-op cleanup, tolerated
+  });
+
+  it('immediately tears down a unit already past its TTL instead of adopting it', async () => {
+    const now = new Date('2026-09-22T12:00:00Z');
+    vi.setSystemTime(now);
+    const startedAt = new Date(now.getTime() - 120_000); // started 120s ago, ttl is 60s
+
+    vi.spyOn(shell, 'execFile').mockImplementation(async (bin, args) => {
+      if (bin === 'systemctl' && args[1] === 'list-units') {
+        return { stdout: 'capi-shell-api-endpoint-proxy-sshuttle-10.2.0.2:6443.service loaded active running\n', stderr: '' };
+      }
+      if (bin === 'systemctl' && args[1] === 'show') {
+        return { stdout: `ActiveEnterTimestamp=${startedAt.toUTCString()}\n`, stderr: '' };
+      }
+      if (bin === 'systemctl' && args[1] === 'stop') {
+        return { stdout: '', stderr: '' };
+      }
+      throw new Error(`unexpected call: ${bin} ${args.join(' ')}`);
+    });
+
+    const { reconcileProxies } = await import('../proxy.js');
+    await reconcileProxies(60);
+
+    expect(shell.execFile).toHaveBeenCalledWith(
+      'systemctl',
+      ['--user', 'stop', 'capi-shell-api-endpoint-proxy-sshuttle-10.2.0.2:6443.service'],
+      expect.objectContaining({}),
+    );
+  });
+
+  it('does nothing when not running under systemd', async () => {
+    delete process.env.INVOCATION_ID;
+    vi.spyOn(shell, 'execFile');
+
+    const { reconcileProxies } = await import('../proxy.js');
+    await reconcileProxies(60);
+
+    expect(shell.execFile).not.toHaveBeenCalled();
+  });
+});
