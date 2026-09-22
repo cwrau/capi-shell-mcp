@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.0](https://github.com/cwrau/capi-shell-mcp/compare/capi-shell-mcp-v1.0.0...capi-shell-mcp-v1.1.0) (2026-09-22)
+
+
+### Features
+
+* attach npm pack tarball to GitHub releases ([08af99b](https://github.com/cwrau/capi-shell-mcp/commit/08af99b374556e4d601ef6f09a7e30bee492790f))
+* bundle runtime deps into the release tarball ([c03f77b](https://github.com/cwrau/capi-shell-mcp/commit/c03f77be0395869849acc84168430378bc2238f6))
+
+
+### Bug Fixes
+
+* strip all bare-* prebuilds, not just non-Linux ones ([5c546b6](https://github.com/cwrau/capi-shell-mcp/commit/5c546b6ea4cff2309fdc7bb6350c10f6f34a522b))
+
 ## [1.0.0](https://github.com/cwrau/capi-shell-mcp/compare/capi-shell-mcp-v0.4.0...capi-shell-mcp-v1.0.0) (2026-09-22)
 
 
