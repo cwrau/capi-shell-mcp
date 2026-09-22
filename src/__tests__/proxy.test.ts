@@ -75,6 +75,18 @@ describe('ensureProxy', () => {
 
     await expect(promise).rejects.toThrow(/exited early/);
   });
+
+  it('spawns exactly once for two concurrent calls with the same key', async () => {
+    const fakeProc = makeFakeProcess();
+    vi.spyOn(proxyShell, 'spawn').mockReturnValue(fakeProc as never);
+
+    const p1 = ensureProxy('key-race', 'user@bastion', '10.0.0.1', '6443', 60);
+    const p2 = ensureProxy('key-race', 'user@bastion', '10.0.0.1', '6443', 60);
+    await vi.advanceTimersByTimeAsync(1100);
+    await Promise.all([p1, p2]);
+
+    expect(proxyShell.spawn).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('refreshProxy', () => {
