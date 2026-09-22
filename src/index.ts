@@ -6,7 +6,11 @@ import { startHttpServer } from './http-server.js';
 const config = loadConfig();
 const cache = createCacheStore(config.cache);
 
-await reconcileProxies(config.cache.kubeconfig_ttl);
+try {
+  await reconcileProxies(config.cache.kubeconfig_ttl);
+} catch (err) {
+  console.error('proxy reconciliation failed, continuing without adopting existing proxies:', err);
+}
 
 const port = Number(process.env.CAPI_SHELL_MCP_PORT ?? '4737');
 const server = await startHttpServer(config, cache, port);
@@ -16,5 +20,5 @@ async function shutdown(): Promise<void> {
   process.exit(0);
 }
 
-process.on('SIGINT', () => { void shutdown(); });
-process.on('SIGTERM', () => { void shutdown(); });
+process.on('SIGINT', () => { shutdown().catch((err) => { console.error('shutdown failed:', err); process.exit(1); }); });
+process.on('SIGTERM', () => { shutdown().catch((err) => { console.error('shutdown failed:', err); process.exit(1); }); });

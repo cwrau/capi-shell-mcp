@@ -31,6 +31,7 @@ export async function startHttpServer(
         }
 
         const host = req.headers.host ?? '';
+        // Only 127.0.0.1 is accepted (not 'localhost') — MCP client configs must use the literal IP.
         if (host !== '127.0.0.1' && host !== `127.0.0.1:${port}`) {
           res.writeHead(421, { 'content-type': 'text/plain' }).end('Misdirected Request');
           return;
