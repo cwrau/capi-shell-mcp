@@ -1,5 +1,4 @@
-node_modules/
-dist/
+/capi-shell-mcp
 *.yaml
 !config.example.yaml
 .superpowers/

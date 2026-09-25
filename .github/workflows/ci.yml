@@ -11,39 +11,22 @@ name: ci
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: ["22.x", "24.x"]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-go@v6
         with:
-          node-version: ${{ matrix.node-version }}
-          cache: npm
-      - run: npm ci
-      - run: npm test
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./... -race
 
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-go@v6
         with:
-          node-version-file: package.json
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-
-  audit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: package.json
-          cache: npm
-      - run: npm ci
-      - run: npm audit --audit-level=moderate
+          go-version-file: go.mod
+      - run: go build ./...
 
   dependency-review:
     runs-on: ubuntu-latest
