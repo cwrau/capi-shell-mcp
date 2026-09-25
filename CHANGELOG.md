@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.1.0](https://github.com/cwrau/capi-shell-mcp/compare/v2.0.0...v2.1.0) (2026-09-25)
+
+
+### Features
+
+* bundle systemd unit files into release tarballs ([75570c7](https://github.com/cwrau/capi-shell-mcp/commit/75570c716761cdde697e8276935238c26d363fe7))
+* include LICENSE in release tarballs ([47c03b2](https://github.com/cwrau/capi-shell-mcp/commit/47c03b2e90d2515b4e89625f59852b40246bb7c9))
+
+
+### Bug Fixes
+
+* strip debug symbols from release binaries ([a86a3d9](https://github.com/cwrau/capi-shell-mcp/commit/a86a3d95ad3d3d4b1e4b96baeb6f2e881468b288))
+
 ## [2.0.0](https://github.com/cwrau/capi-shell-mcp/compare/v1.0.0...v2.0.0) (2026-09-25)
 
 
