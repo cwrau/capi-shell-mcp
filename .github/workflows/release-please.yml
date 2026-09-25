@@ -55,7 +55,7 @@ jobs:
       - name: Package
         run: |
           tar czf "capi-shell-mcp-${{ matrix.os }}-${{ matrix.arch }}.tar.gz" \
-            capi-shell-mcp \
+            capi-shell-mcp LICENSE \
             -C contrib/systemd capi-shell-mcp.service capi-shell-mcp-config.service capi-shell-mcp-config.path
       - run: gh release upload "${{ needs.release-please.outputs.tag_name }}" "capi-shell-mcp-${{ matrix.os }}-${{ matrix.arch }}.tar.gz"
         env:
