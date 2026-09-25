@@ -51,7 +51,7 @@ jobs:
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
-        run: go build -o capi-shell-mcp ./cmd/capi-shell-mcp
+        run: go build -ldflags="-s -w" -o capi-shell-mcp ./cmd/capi-shell-mcp
       - name: Package
         run: |
           tar czf "capi-shell-mcp-${{ matrix.os }}-${{ matrix.arch }}.tar.gz" \
