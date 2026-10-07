@@ -89,7 +89,8 @@ type kubeconfigResult struct {
 	Error      string `json:"error,omitempty"`
 }
 
-func (s *ToolServer) getClusterKubeconfigFanOut(ctx context.Context, in ClusterFilterInput, readonly bool) (*mcp.CallToolResult, error) {
+// GetClusterKubeconfig implements the get_cluster_kubeconfig tool.
+func (s *ToolServer) GetClusterKubeconfig(ctx context.Context, in ClusterFilterInput) (*mcp.CallToolResult, error) {
 	targets, err := s.resolveClusterPatterns(ctx, in.Clusters, false)
 	if err != nil {
 		return textResult(err.Error(), true), nil
@@ -106,16 +107,7 @@ func (s *ToolServer) getClusterKubeconfigFanOut(ctx context.Context, in ClusterF
 				results[i] = kubeconfigResult{Cluster: target, Error: err.Error()}
 				return
 			}
-			if !readonly {
-				results[i] = kubeconfigResult{Cluster: target, Kubeconfig: adminKC}
-				return
-			}
-			roKC, err := s.readOnlyKubeconfig(ctx, adminKC)
-			if err != nil {
-				results[i] = kubeconfigResult{Cluster: target, Error: err.Error()}
-				return
-			}
-			results[i] = kubeconfigResult{Cluster: target, Kubeconfig: roKC}
+			results[i] = kubeconfigResult{Cluster: target, Kubeconfig: adminKC}
 		}(i, target)
 	}
 	wg.Wait()
@@ -132,16 +124,6 @@ func (s *ToolServer) getClusterKubeconfigFanOut(ctx context.Context, in ClusterF
 		}
 	}
 	return textResult(string(b), isError), nil
-}
-
-// GetClusterKubeconfig implements the get_cluster_kubeconfig tool.
-func (s *ToolServer) GetClusterKubeconfig(ctx context.Context, in ClusterFilterInput) (*mcp.CallToolResult, error) {
-	return s.getClusterKubeconfigFanOut(ctx, in, false)
-}
-
-// GetClusterKubeconfigReadonly implements the get_cluster_kubeconfig_readonly tool.
-func (s *ToolServer) GetClusterKubeconfigReadonly(ctx context.Context, in ClusterFilterInput) (*mcp.CallToolResult, error) {
-	return s.getClusterKubeconfigFanOut(ctx, in, true)
 }
 
 type clusterID struct {

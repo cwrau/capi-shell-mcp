@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"gopkg.in/yaml.v3"
-	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -398,75 +396,6 @@ func TestEnsureReadOnlyRBACFallsBackToDeleteRecreateOnImmutableRoleRef(t *testin
 	}
 	if crb.RoleRef.Name != "capi-shell-mcp-read-only" {
 		t.Errorf("RoleRef.Name = %q, want the recreated binding's roleRef", crb.RoleRef.Name)
-	}
-}
-
-func withTokenReactor(client *fake.Clientset, token string) {
-	client.PrependReactor("create", "serviceaccounts", func(action k8stesting.Action) (bool, runtime.Object, error) {
-		if action.GetSubresource() != "token" {
-			return false, nil, nil
-		}
-		return true, &authenticationv1.TokenRequest{Status: authenticationv1.TokenRequestStatus{Token: token}}, nil
-	})
-}
-
-func TestCreateReadOnlyKubeconfigReturnsYAMLWithTokenServerAndCA(t *testing.T) {
-	client := fake.NewClientset()
-	withTokenReactor(client, "mytoken")
-
-	got, err := CreateReadOnlyKubeconfig(context.Background(), client.CoreV1(), client.RbacV1(), discoveryFixture(), []string{"secrets"}, adminKcYAMLFixture, 3600)
-	if err != nil {
-		t.Fatalf("CreateReadOnlyKubeconfig: %v", err)
-	}
-
-	var parsed struct {
-		Clusters []struct {
-			Cluster struct {
-				Server string `yaml:"server"`
-				CAData string `yaml:"certificate-authority-data"`
-			} `yaml:"cluster"`
-		} `yaml:"clusters"`
-		Users []struct {
-			User struct {
-				Token string `yaml:"token"`
-			} `yaml:"user"`
-		} `yaml:"users"`
-		CurrentContext string `yaml:"current-context"`
-	}
-	if err := yaml.Unmarshal([]byte(got), &parsed); err != nil {
-		t.Fatalf("yaml.Unmarshal: %v", err)
-	}
-	if parsed.Clusters[0].Cluster.Server != "https://10.0.0.1:6443" {
-		t.Errorf("server = %q", parsed.Clusters[0].Cluster.Server)
-	}
-	if parsed.Clusters[0].Cluster.CAData != "dGVzdC1jYQ==" {
-		t.Errorf("ca data = %q", parsed.Clusters[0].Cluster.CAData)
-	}
-	if parsed.Users[0].User.Token != "mytoken" {
-		t.Errorf("token = %q", parsed.Users[0].User.Token)
-	}
-	if parsed.CurrentContext != "readonly" {
-		t.Errorf("current-context = %q", parsed.CurrentContext)
-	}
-}
-
-func TestCreateReadOnlyKubeconfigErrorsWhenTokenRequestReturnsNoToken(t *testing.T) {
-	client := fake.NewClientset()
-	withTokenReactor(client, "")
-
-	_, err := CreateReadOnlyKubeconfig(context.Background(), client.CoreV1(), client.RbacV1(), discoveryFixture(), []string{"secrets"}, adminKcYAMLFixture, 60)
-	if err == nil || !strings.Contains(err.Error(), "no token") {
-		t.Fatalf("err = %v, want mention of 'no token'", err)
-	}
-}
-
-func TestCreateReadOnlyKubeconfigErrorsWhenAdminKubeconfigHasNoClusters(t *testing.T) {
-	client := fake.NewClientset()
-	withTokenReactor(client, "mytoken")
-
-	_, err := CreateReadOnlyKubeconfig(context.Background(), client.CoreV1(), client.RbacV1(), discoveryFixture(), []string{"secrets"}, "apiVersion: v1\nkind: Config\nclusters: []\n", 60)
-	if err == nil || !strings.Contains(err.Error(), "no cluster") {
-		t.Fatalf("err = %v, want mention of 'no cluster'", err)
 	}
 }
 

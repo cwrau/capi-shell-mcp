@@ -39,8 +39,8 @@ func RealClientsForContext(src config.KubeconfigSource, context string) (*Client
 }
 
 // ClientsFromKubeconfigYAML builds Core/Rbac/Discovery clients directly from a
-// kubeconfig YAML string (its current-context) — used to mint a read-only
-// token against the *workload* cluster itself, via its own admin
+// kubeconfig YAML string (its current-context) — used to ensure the read-only
+// RBAC on the *workload* cluster itself, via its own admin
 // kubeconfig, rather than against a configured kubeconfig entry.
 func ClientsFromKubeconfigYAML(kubeconfigYAML string) (corev1client.CoreV1Interface, rbacv1client.RbacV1Interface, capi.APIResourceLister, error) {
 	clients, err := clientsFromKubeconfigBytes([]byte(kubeconfigYAML), "")

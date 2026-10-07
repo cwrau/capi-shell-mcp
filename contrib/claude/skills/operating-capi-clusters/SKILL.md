@@ -16,7 +16,7 @@ capi-shell-mcp also embeds `kubernetes-mcp-server`'s full tool set (`pods_list`,
 Every tool takes a `clusters` array of composite target strings: `"kubeconfig/context/namespace/name"` (a workload cluster), or a shorter prefix — `"kubeconfig/context/namespace"` (whole namespace), `"kubeconfig/context"` (whole context), `"kubeconfig"` (whole kubeconfig) — which expands to every matching cluster. A kubeconfig entry is itself a valid target (pass it as the `name` segment when addressing the kubeconfig's own cluster, exactly like any workload cluster).
 
 Two rules, uniform across every tool including the embedded ones:
-- **Read-only tools** (`list_clusters`, `get_cluster_kubeconfig(_readonly)`, `exec_in_cluster_readonly`, and read-only embedded tools like `pods_list`): partial prefixes are allowed, and omitting `clusters` entirely means "every known cluster". An empty array (`[]`) means "nothing" (valid no-op).
+- **Read-only tools** (`list_clusters`, `get_cluster_kubeconfig`, `exec_in_cluster_readonly`, and read-only embedded tools like `pods_list`): partial prefixes are allowed, and omitting `clusters` entirely means "every known cluster". An empty array (`[]`) means "nothing" (valid no-op).
 - **Non-read-only tools** (`exec_in_cluster`, and write-capable embedded tools): every entry must be a full exact `kubeconfig/context/namespace/name` path — no prefixes, no omitting `clusters`, since the command/write being run is opaque. An empty array is still a valid no-op.
 
 An empty-string entry anywhere in the array is always a hard error.
@@ -25,14 +25,14 @@ An empty-string entry anywhere in the array is always a hard error.
 
 ## Tools (deferred — load schemas first)
 
-Run `ToolSearch({query: "select:mcp__capi-shell-mcp__list_clusters,mcp__capi-shell-mcp__exec_in_cluster,mcp__capi-shell-mcp__exec_in_cluster_readonly,mcp__capi-shell-mcp__get_cluster_kubeconfig,mcp__capi-shell-mcp__get_cluster_kubeconfig_readonly"})` before calling any of them — they aren't preloaded.
+Run `ToolSearch({query: "select:mcp__capi-shell-mcp__list_clusters,mcp__capi-shell-mcp__exec_in_cluster,mcp__capi-shell-mcp__exec_in_cluster_readonly,mcp__capi-shell-mcp__get_cluster_kubeconfig"})` before calling any of them — they aren't preloaded.
 
 | Tool | Use for |
 |---|---|
 | `list_clusters` | Discover clusters. Call with no filter (or a loose prefix) when you only have a name/customer/location, not the full target string |
-| `exec_in_cluster_readonly` | Default for any read/check/status/debug task — mints a scoped, short-lived read-only token, no OpenStack creds. Takes kubectl `args` (everything after `kubectl`, verb first), not a command: only read verbs (`get`, `describe`, `logs`, `top`, `events`, `api-resources`, `api-versions`, `explain`, `version`, `auth can-i`/`whoami`) and a fixed set of flags per verb are accepted, anything else is rejected with an explanation. Runs against one or many clusters in one call via `clusters`. Optional `jq` filters `-o json` output in-process; `save_output` writes big outputs to a file on the daemon host and returns its path. kubectl output over 10 MiB per cluster fails unless `jq` or `save_output` is used, which accept up to 32 MiB; the daemon works on at most 8 clusters at a time. Access is a ClusterRole the daemon generates: get/list/watch on every API resource except the ones the daemon is configured to deny (default: only Secrets) — use `exec_in_cluster` for those |
+| `exec_in_cluster_readonly` | Default for any read/check/status/debug task — runs as a read-only ServiceAccount (requests are audited as the caller, impersonating it), no OpenStack creds. Takes kubectl `args` (everything after `kubectl`, verb first), not a command: only read verbs (`get`, `describe`, `logs`, `top`, `events`, `api-resources`, `api-versions`, `explain`, `version`, `auth can-i`/`whoami`) and a fixed set of flags per verb are accepted, anything else is rejected with an explanation. Runs against one or many clusters in one call via `clusters`. Optional `jq` filters `-o json` output in-process; `save_output` writes big outputs to a file on the daemon host and returns its path. kubectl output over 10 MiB per cluster fails unless `jq` or `save_output` is used, which accept up to 32 MiB; the daemon works on at most 8 clusters at a time. Access is a ClusterRole the daemon generates: get/list/watch on every API resource except the ones the daemon is configured to deny (default: only Secrets) — use `exec_in_cluster` for those |
 | `exec_in_cluster` | Only when a write is needed, OpenStack credentials are needed, or `_readonly` returns `Forbidden` (including for reading Secrets). Requires full exact target(s) — no prefixes |
-| `get_cluster_kubeconfig(_readonly)` | Only when the user explicitly wants a kubeconfig file to take away — not as a step toward running kubectl locally yourself. The `_readonly` variant's token can't read the denied resources (by default Secrets) either |
+| `get_cluster_kubeconfig` | Only when the user explicitly wants a kubeconfig file to take away — not as a step toward running kubectl locally yourself |
 
 ## Workflow
 

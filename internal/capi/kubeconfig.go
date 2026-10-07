@@ -1,6 +1,6 @@
 // Package capi discovers CAPI (Cluster API) workload clusters across
 // configured kubeconfigs and produces their kubeconfigs, OpenStack
-// credentials, and read-only tokens.
+// credentials, and read-only (impersonating) kubeconfigs.
 package capi
 
 import (

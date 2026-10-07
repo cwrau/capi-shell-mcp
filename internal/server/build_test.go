@@ -9,7 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestBuildServerRegistersAllFiveTools(t *testing.T) {
+func TestBuildServerRegistersAllFourTools(t *testing.T) {
 	ts, _ := newFakeToolServer(t, "cluster-1")
 	srv := BuildServer(ts)
 
@@ -36,7 +36,6 @@ func TestBuildServerRegistersAllFiveTools(t *testing.T) {
 	want := []string{
 		"list_clusters",
 		"get_cluster_kubeconfig",
-		"get_cluster_kubeconfig_readonly",
 		"exec_in_cluster",
 		"exec_in_cluster_readonly",
 	}

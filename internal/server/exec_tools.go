@@ -139,7 +139,7 @@ func (s *ToolServer) ExecInCluster(ctx context.Context, in ExecInput) (*mcp.Call
 	return finishExecResults(results)
 }
 
-// execReadonlyOneTarget runs `kubectl <args>` with a freshly minted
+// execReadonlyOneTarget runs `kubectl <args>` with an impersonating
 // read-only kubeconfig, then applies the optional jq filter and
 // save-to-file post-processing.
 func (s *ToolServer) execReadonlyOneTarget(ctx context.Context, target string, args []string, post *postProcessor) clusterExecResult {

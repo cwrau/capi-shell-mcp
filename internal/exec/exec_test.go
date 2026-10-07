@@ -169,7 +169,9 @@ func TestKubectlScrubsTheEnvironment(t *testing.T) {
 	keys := map[string]bool{}
 	for _, kv := range probe.env {
 		k, _, _ := strings.Cut(kv, "=")
-		keys[k] = true
+		if !strings.HasPrefix(k, "XDG_") {
+			keys[k] = true
+		}
 		if strings.Contains(kv, "leak-me") || strings.Contains(kv, "hunter2") || strings.Contains(kv, "/evil") {
 			t.Errorf("env leaked a parent variable: %q", kv)
 		}
@@ -180,7 +182,7 @@ func TestKubectlScrubsTheEnvironment(t *testing.T) {
 		}
 	}
 	if len(keys) != 4 {
-		t.Errorf("env keys = %v, want exactly PATH/HOME/KUBECONFIG/KUBECACHEDIR", keys)
+		t.Errorf("env keys = %v, want exactly PATH/HOME/KUBECONFIG/KUBECACHEDIR besides XDG_*", keys)
 	}
 }
 
@@ -217,5 +219,57 @@ func TestKubectlPassesTheOutputCapItIsGivenToTheExecer(t *testing.T) {
 	}
 	if MaxProcessedOutputBytes <= DefaultMaxOutputBytes {
 		t.Errorf("the cap for output that is filtered or saved (%d) must exceed the inline cap (%d)", MaxProcessedOutputBytes, DefaultMaxOutputBytes)
+	}
+}
+
+func kubectlEnvValue(env []string, key string) (string, bool) {
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, key+"="); ok {
+			return v, true
+		}
+	}
+	return "", false
+}
+
+func TestKubectlPassesThroughTheRealHome(t *testing.T) {
+	t.Setenv("HOME", "/home/real-user")
+	probe := &kubectlProbe{}
+	if _, err := Kubectl(context.Background(), probe, "kc", []string{"get", "pods"}, DefaultMaxOutputBytes); err != nil {
+		t.Fatalf("Kubectl: %v", err)
+	}
+	if got, _ := kubectlEnvValue(probe.env, "HOME"); got != "/home/real-user" {
+		t.Errorf("HOME = %q, want the real one so a credential plugin finds its token cache", got)
+	}
+}
+
+func TestKubectlFallsBackToItsPrivateDirWithoutAHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	probe := &kubectlProbe{}
+	if _, err := Kubectl(context.Background(), probe, "kc", []string{"get", "pods"}, DefaultMaxOutputBytes); err != nil {
+		t.Fatalf("Kubectl: %v", err)
+	}
+	home, _ := kubectlEnvValue(probe.env, "HOME")
+	if !strings.Contains(home, "capi-shell-mcp-kubectl-") {
+		t.Errorf("HOME = %q, want the private dir when the process has no HOME", home)
+	}
+}
+
+func TestKubectlPassesThroughXDGVariablesOnly(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", "/cache")
+	t.Setenv("XDG_CONFIG_HOME", "/config")
+	t.Setenv("NOT_XDG_VARIABLE", "leak-me")
+
+	probe := &kubectlProbe{}
+	if _, err := Kubectl(context.Background(), probe, "kc", []string{"get", "pods"}, DefaultMaxOutputBytes); err != nil {
+		t.Fatalf("Kubectl: %v", err)
+	}
+	if got, _ := kubectlEnvValue(probe.env, "XDG_CACHE_HOME"); got != "/cache" {
+		t.Errorf("XDG_CACHE_HOME = %q, want it passed through", got)
+	}
+	if got, _ := kubectlEnvValue(probe.env, "XDG_CONFIG_HOME"); got != "/config" {
+		t.Errorf("XDG_CONFIG_HOME = %q, want it passed through", got)
+	}
+	if _, ok := kubectlEnvValue(probe.env, "NOT_XDG_VARIABLE"); ok {
+		t.Errorf("env = %v, want non-XDG variables still scrubbed", probe.env)
 	}
 }

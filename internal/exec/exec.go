@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/cwrau/capi-shell-mcp/internal/shell"
 )
@@ -78,11 +79,18 @@ func resultFrom(out shell.Output, err error) Result {
 }
 
 // Kubectl runs `kubectl <args>` against workloadKubeconfig with a scrubbed
-// environment: only PATH, plus a private HOME/cache dir and KUBECONFIG
-// pointing at a temp copy of the kubeconfig. Nothing else from this
-// process's environment (credentials, tokens, KUBE* overrides, …) reaches
-// kubectl. args must already have passed kubectlargs.Validate — this
-// function never runs anything but kubectl. maxBytes caps combined
+// environment: only PATH, this process's real HOME and XDG_* variables, a
+// private kubectl cache dir and KUBECONFIG pointing at a temp copy of the
+// kubeconfig. Nothing else from this process's environment (credentials,
+// tokens, KUBE* overrides, …) reaches kubectl.
+//
+// HOME and XDG_* are deliberate: the kubeconfig's credential plugin (e.g.
+// kubelogin) keeps its token cache under them, and without them it would
+// find none and start an interactive login. The private dir is the HOME
+// only if this process has none.
+//
+// args must already have passed kubectlargs.Validate — this function never
+// runs anything but kubectl. maxBytes caps combined
 // stdout+stderr; output beyond it fails the run (see DefaultMaxOutputBytes
 // and MaxProcessedOutputBytes).
 func Kubectl(ctx context.Context, execer shell.Execer, workloadKubeconfig string, args []string, maxBytes int) (Result, error) {
@@ -98,11 +106,22 @@ func Kubectl(ctx context.Context, execer shell.Execer, workloadKubeconfig string
 	}
 
 	// A non-nil env is essential: a nil Env means "inherit the parent's".
+	home := os.Getenv("HOME")
+	if home == "" {
+		home = dir
+	}
 	env := []string{
 		"PATH=" + os.Getenv("PATH"),
-		"HOME=" + dir,
+		"HOME=" + home,
 		"KUBECONFIG=" + kubeconfigPath,
 		"KUBECACHEDIR=" + filepath.Join(dir, "cache"),
+	}
+	// XDG_* locations may relocate the credential plugin's cache and config
+	// away from HOME, so they pass through like HOME does.
+	for _, kv := range os.Environ() {
+		if strings.HasPrefix(kv, "XDG_") {
+			env = append(env, kv)
+		}
 	}
 
 	out, err := execer.ExecFile(ctx, "kubectl", args, shell.Options{

@@ -1,5 +1,5 @@
 // Command capi-shell-mcp runs the MCP daemon: it loads config, wires the
-// CAPI cluster caches and sshuttle proxy manager, mounts the 7 bespoke
+// CAPI cluster caches and sshuttle proxy manager, mounts the bespoke
 // tools, and serves them over HTTP at 127.0.0.1.
 package main
 

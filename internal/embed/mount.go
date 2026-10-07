@@ -18,7 +18,7 @@ import (
 // strings, resolved by capiProvider through resolver.
 //
 // Tools the upstream marks read-only are served by a second provider whose
-// clients carry the minted read-only token instead of admin credentials, so
+// clients impersonate the read-only ServiceAccount instead of using admin rights, so
 // the read-only RBAC (everything readable except the configured denied
 // resources, Secrets by default) binds them like it binds
 // exec_in_cluster_readonly. Every other tool keeps admin credentials.

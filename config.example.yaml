@@ -45,8 +45,8 @@ cache:
   cluster_list_ttl: 300   # seconds; default 300
   kubeconfig_ttl: 3600    # seconds; default 3600 (also controls sshuttle proxy lifetime)
 
-# Optional. Resources the read-only ServiceAccount (exec_in_cluster_readonly,
-# get_cluster_kubeconfig_readonly and the embedded read-only tools) may not read.
+# Optional. Resources the read-only ServiceAccount (exec_in_cluster_readonly
+# and the embedded read-only tools) may not read.
 # The daemon generates a ClusterRole on each workload cluster that grants
 # get/list/watch on every API resource the cluster serves except these.
 #   - unset (or no denied_resources key): only Secrets are denied

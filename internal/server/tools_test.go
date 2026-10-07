@@ -14,7 +14,6 @@ import (
 	"github.com/cwrau/capi-shell-mcp/internal/proxy"
 	"github.com/cwrau/capi-shell-mcp/internal/shell"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	authenticationv1 "k8s.io/api/authentication/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -24,7 +23,6 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	rbacv1client "k8s.io/client-go/kubernetes/typed/rbac/v1"
-	k8stesting "k8s.io/client-go/testing"
 )
 
 var (
@@ -93,7 +91,6 @@ users:
 		})
 	}
 	core := fake.NewClientset(secrets...)
-	core.PrependReactor("create", "serviceaccounts", tokenReactor("faketoken"))
 
 	fc := &fakeClients{dyn: dyn, core: core}
 
@@ -167,15 +164,6 @@ func (e *fakeExecer) ExecFile(_ context.Context, file string, args []string, opt
 		stdout = e.scriptedStdout
 	}
 	return shell.Output{Stdout: stdout, Stderr: e.okStderr}, nil
-}
-
-func tokenReactor(token string) k8stesting.ReactionFunc {
-	return func(action k8stesting.Action) (bool, runtime.Object, error) {
-		if action.GetSubresource() != "token" {
-			return false, nil, nil
-		}
-		return true, &authenticationv1.TokenRequest{Status: authenticationv1.TokenRequestStatus{Token: token}}, nil
-	}
 }
 
 func asText(result *mcp.CallToolResult) string {
@@ -731,19 +719,6 @@ func TestSaveOutputSweepsStaleFilesButKeepsFreshOnes(t *testing.T) {
 	}
 }
 
-func TestGetClusterKubeconfigReadonlyMintsToken(t *testing.T) {
-	s, fc := newFakeToolServer(t, "cluster-1")
-	fc.core.PrependReactor("create", "serviceaccounts", tokenReactor("mytoken"))
-
-	result, err := s.GetClusterKubeconfigReadonly(context.Background(), ClusterFilterInput{Clusters: []string{clusterOneTarget}})
-	if err != nil {
-		t.Fatalf("GetClusterKubeconfigReadonly: %v", err)
-	}
-	if !strings.Contains(asText(result), "mytoken") {
-		t.Fatalf("result text = %q, want it to contain the minted token", asText(result))
-	}
-}
-
 func TestExecInClusterFanOutIsolatesPerClusterFailures(t *testing.T) {
 	s, _ := newFakeToolServer(t, "cluster-1", "cluster-2")
 
@@ -814,15 +789,11 @@ func seedOpenStackCluster(t *testing.T, fc *fakeClients, clusterName string) {
 }
 
 func TestKubeconfigToolsOmittedClustersMeansEveryKnownCluster(t *testing.T) {
-	s, fc := newFakeToolServer(t, "cluster-1", "cluster-2")
-	fc.core.PrependReactor("create", "serviceaccounts", tokenReactor("tok"))
+	s, _ := newFakeToolServer(t, "cluster-1", "cluster-2")
 
 	for name, call := range map[string]func() (*mcp.CallToolResult, error){
 		"get_cluster_kubeconfig": func() (*mcp.CallToolResult, error) {
 			return s.GetClusterKubeconfig(context.Background(), ClusterFilterInput{})
-		},
-		"get_cluster_kubeconfig_readonly": func() (*mcp.CallToolResult, error) {
-			return s.GetClusterKubeconfigReadonly(context.Background(), ClusterFilterInput{})
 		},
 	} {
 		result, err := call()

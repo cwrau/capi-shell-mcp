@@ -53,7 +53,7 @@ func (s *ToolServer) ResolveTarget(ctx context.Context, target string) (string, 
 	return s.cachedKubeconfig(ctx, src, contextName, namespace, name)
 }
 
-// ResolveTargetReadonly is ResolveTarget, but returns a freshly minted
+// ResolveTargetReadonly is ResolveTarget, but returns a freshly built
 // read-only kubeconfig for the cluster instead of the admin one.
 func (s *ToolServer) ResolveTargetReadonly(ctx context.Context, target string) (string, error) {
 	adminKC, err := s.ResolveTarget(ctx, target)
@@ -63,5 +63,5 @@ func (s *ToolServer) ResolveTargetReadonly(ctx context.Context, target string) (
 	return s.readOnlyKubeconfig(ctx, adminKC)
 }
 
-// ReadonlyTTL is the lifetime of the tokens readOnlyKubeconfig mints.
+// ReadonlyTTL is how long a client built from a read-only kubeconfig is kept.
 func (s *ToolServer) ReadonlyTTL() time.Duration { return s.kubeconfigTTL() }

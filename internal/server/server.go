@@ -1,5 +1,5 @@
-// Package server builds the MCP server and its 7 bespoke CAPI cluster
-// tools (list_clusters, get_cluster_kubeconfig(_readonly),
+// Package server builds the MCP server and its bespoke CAPI cluster
+// tools (list_clusters, get_cluster_kubeconfig,
 // exec_in_cluster(s)(_readonly)).
 package server
 
@@ -15,7 +15,7 @@ import (
 	rbacv1client "k8s.io/client-go/kubernetes/typed/rbac/v1"
 )
 
-// ToolServer holds everything the 7 bespoke tools need: config, the
+// ToolServer holds everything the bespoke tools need: config, the
 // process-lifetime caches, the sshuttle proxy manager, and the seams for
 // building Kubernetes clients / running commands.
 type ToolServer struct {

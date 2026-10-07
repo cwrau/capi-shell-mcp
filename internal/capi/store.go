@@ -23,8 +23,8 @@ type CachedKubeconfig struct {
 
 // Store holds the two process-lifetime caches shared across every MCP
 // session: the CAPI cluster list per kubeconfig+context, and fetched admin
-// kubeconfigs. Read-only kubeconfigs/tokens are deliberately never cached
-// — see CreateReadOnlyKubeconfig.
+// kubeconfigs. Read-only kubeconfigs are deliberately never cached
+// — see ReadOnlyKubeconfig.
 type Store struct {
 	ClusterList *cache.TTLCache[string, []CAPICluster]
 	Kubeconfig  *cache.TTLCache[string, CachedKubeconfig]

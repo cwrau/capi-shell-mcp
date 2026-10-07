@@ -27,7 +27,7 @@ var errUnknownTarget = kmcpkube.ErrUnknownTarget
 // through: ResolveTarget turns one of our composite target strings into
 // the admin kubeconfig YAML for that workload cluster (fetched/cached/
 // tunneled exactly like our own tools), ResolveTargetReadonly returns a
-// freshly minted, RBAC-restricted kubeconfig for the same cluster (valid for
+// freshly built, impersonating read-only kubeconfig for the same cluster (valid for
 // ReadonlyTTL), and ListTargets enumerates every currently-known target
 // string.
 type TargetResolver interface {
@@ -45,11 +45,11 @@ const targetParameterName = "cluster"
 // lookup through our own CAPI cluster-discovery/kubeconfig-cache/sshuttle
 // pipeline (via resolver) instead of a single static kubeconfig.
 //
-// A readonly provider hands out clients built from the minted read-only
+// A readonly provider hands out clients built from the impersonating read-only
 // kubeconfig instead of the admin one, so every tool served by it is bound
-// by the read-only RBAC regardless of what the tool itself tries to do. Its
-// short-lived token means cached managers expire after half the token's
-// lifetime.
+// by the read-only RBAC regardless of what the tool itself tries to do.
+// Cached managers expire after half of ReadonlyTTL, which also regenerates
+// the read-only role regularly.
 type capiProvider struct {
 	resolver TargetResolver
 	readonly bool

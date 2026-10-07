@@ -71,14 +71,14 @@ func (s *ToolServer) cachedKubeconfig(ctx context.Context, src config.Kubeconfig
 	return kc, nil
 }
 
-// readOnlyKubeconfig mints a read-only kubeconfig for the workload cluster
-// identified by adminKC, built from a client derived from adminKC itself
-// (not the kubeconfig entry it was discovered through) — the read-only
-// RBAC/token live on the workload cluster.
+// readOnlyKubeconfig returns adminKC set to impersonate the read-only
+// ServiceAccount of the workload cluster it identifies, built from a client
+// derived from adminKC itself (not the kubeconfig entry it was discovered
+// through) — the read-only RBAC lives on the workload cluster.
 func (s *ToolServer) readOnlyKubeconfig(ctx context.Context, adminKC string) (string, error) {
 	core, rbac, lister, err := s.clientsFromReadonlySource(adminKC)
 	if err != nil {
 		return "", err
 	}
-	return capi.CreateReadOnlyKubeconfig(ctx, core, rbac, lister, s.cfg.ReadOnly.DeniedResources, adminKC, int64(s.kubeconfigTTL().Seconds()))
+	return capi.ReadOnlyKubeconfig(ctx, core, rbac, lister, s.cfg.ReadOnly.DeniedResources, adminKC)
 }
