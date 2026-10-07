@@ -76,9 +76,9 @@ func (s *ToolServer) cachedKubeconfig(ctx context.Context, src config.Kubeconfig
 // (not the kubeconfig entry it was discovered through) — the read-only
 // RBAC/token live on the workload cluster.
 func (s *ToolServer) readOnlyKubeconfig(ctx context.Context, adminKC string) (string, error) {
-	core, rbac, err := s.clientsFromReadonlySource(adminKC)
+	core, rbac, lister, err := s.clientsFromReadonlySource(adminKC)
 	if err != nil {
 		return "", err
 	}
-	return capi.CreateReadOnlyKubeconfig(ctx, core, rbac, adminKC, int64(s.kubeconfigTTL().Seconds()))
+	return capi.CreateReadOnlyKubeconfig(ctx, core, rbac, lister, s.cfg.ReadOnly.DeniedResources, adminKC, int64(s.kubeconfigTTL().Seconds()))
 }

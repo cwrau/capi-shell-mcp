@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/cwrau/capi-shell-mcp/internal/capi"
 )
@@ -51,3 +52,16 @@ func (s *ToolServer) ResolveTarget(ctx context.Context, target string) (string, 
 	}
 	return s.cachedKubeconfig(ctx, src, contextName, namespace, name)
 }
+
+// ResolveTargetReadonly is ResolveTarget, but returns a freshly minted
+// read-only kubeconfig for the cluster instead of the admin one.
+func (s *ToolServer) ResolveTargetReadonly(ctx context.Context, target string) (string, error) {
+	adminKC, err := s.ResolveTarget(ctx, target)
+	if err != nil {
+		return "", err
+	}
+	return s.readOnlyKubeconfig(ctx, adminKC)
+}
+
+// ReadonlyTTL is the lifetime of the tokens readOnlyKubeconfig mints.
+func (s *ToolServer) ReadonlyTTL() time.Duration { return s.kubeconfigTTL() }

@@ -104,20 +104,20 @@ func (m *Manager) EnsureProxy(ctx context.Context, apiServerIP, apiServerPort, s
 
 // ensureSystemdProxy treats the systemd unit itself as the only source of
 // truth for whether a proxy is running (never an in-memory flag): a fresh
-// systemctl is-active check decides whether to extend the existing unit's
-// RuntimeMaxSec or spawn a new one. This survives a daemon restart with no
-// reconciliation step needed — there's no in-memory state to go stale in
-// the first place.
+// systemctl is-active check decides whether to reuse the existing unit or
+// spawn a new one. This survives a daemon restart with no reconciliation
+// step needed — there's no in-memory state to go stale in the first place.
+//
+// An already-active unit is reused as-is, RuntimeMaxSec included: systemd
+// doesn't support changing RuntimeMaxSec on a unit that's already running
+// (systemctl set-property rejects it outright, on every version tested),
+// so there's no way to extend it. It'll simply respawn with a fresh TTL
+// once the original one elapses.
 func (m *Manager) ensureSystemdProxy(ctx context.Context, apiServerIP, apiServerPort, sshuttleHost string, ttl time.Duration) error {
 	name := unitName(apiServerIP, apiServerPort)
 	ttlSeconds := strconv.Itoa(int(ttl.Seconds()))
 
 	if m.isUnitActive(ctx, name) {
-		if _, err := m.execer.ExecFile(ctx, "systemctl", []string{
-			"--user", "set-property", name, "RuntimeMaxSec=" + ttlSeconds,
-		}, shell.Options{}); err != nil {
-			return fmt.Errorf("proxy: extending %s: %w", name, err)
-		}
 		return nil
 	}
 

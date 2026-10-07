@@ -292,3 +292,124 @@ func TestLoadUsesEnvVarForConfigPath(t *testing.T) {
 		t.Fatalf("got %d kubeconfigs, want 1", len(cfg.Kubeconfigs))
 	}
 }
+
+func TestLoadConfigDeniesOnlySecretsFromReadOnlyRoleByDefault(t *testing.T) {
+	cfg, err := LoadConfig(writeConfig(t, minimalYAML))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	got := cfg.ReadOnly.DeniedResources
+	if len(got) != 1 || got[0] != "secrets" {
+		t.Fatalf("DeniedResources = %#v, want [secrets]", got)
+	}
+}
+
+func TestLoadConfigDeniesOnlySecretsWhenReadOnlyKeysAreNull(t *testing.T) {
+	for name, extra := range map[string]string{
+		"null section":     "readonly:\n",
+		"null denied list": "readonly:\n  denied_resources:\n",
+		"empty section":    "readonly: {}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := LoadConfig(writeConfig(t, minimalYAML+extra))
+			if err != nil {
+				t.Fatalf("LoadConfig: %v", err)
+			}
+			got := cfg.ReadOnly.DeniedResources
+			if len(got) != 1 || got[0] != "secrets" {
+				t.Fatalf("DeniedResources = %#v, want [secrets]", got)
+			}
+		})
+	}
+}
+
+func TestLoadConfigParsesDeniedResourcesList(t *testing.T) {
+	cfg, err := LoadConfig(writeConfig(t, minimalYAML+`
+readonly:
+  denied_resources:
+    - secrets
+    - " Authentication.K8s.io/Tokenreviews "
+    - configmaps
+`))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	want := []string{"secrets", "authentication.k8s.io/tokenreviews", "configmaps"}
+	got := cfg.ReadOnly.DeniedResources
+	if len(got) != len(want) {
+		t.Fatalf("DeniedResources = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("DeniedResources = %#v, want %#v", got, want)
+		}
+	}
+}
+
+func TestLoadConfigAllowsEverythingWhenDeniedResourcesIsEmptyList(t *testing.T) {
+	cfg, err := LoadConfig(writeConfig(t, minimalYAML+"readonly:\n  denied_resources: []\n"))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if len(cfg.ReadOnly.DeniedResources) != 0 {
+		t.Fatalf("DeniedResources = %#v, want empty (nothing denied, Secrets included)", cfg.ReadOnly.DeniedResources)
+	}
+}
+
+func TestLoadConfigRejectsMalformedDeniedResources(t *testing.T) {
+	for name, extra := range map[string]string{
+		"not a list":        "readonly:\n  denied_resources: secrets\n",
+		"non-string entry":  "readonly:\n  denied_resources:\n    - 3\n",
+		"blank entry":       "readonly:\n  denied_resources:\n    - \"  \"\n",
+		"dotted group form": "readonly:\n  denied_resources:\n    - deployments.apps\n",
+		"subresource":       "readonly:\n  denied_resources:\n    - pods/log\n",
+		"too many parts":    "readonly:\n  denied_resources:\n    - apps/v1/deployments/scale\n",
+		"empty resource":    "readonly:\n  denied_resources:\n    - apps/\n",
+		"bad version":       "readonly:\n  denied_resources:\n    - apps/stable/deployments\n",
+		"readonly not map":  "readonly: nope\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := LoadConfig(writeConfig(t, minimalYAML+extra)); err == nil {
+				t.Fatal("LoadConfig succeeded, want an error")
+			}
+		})
+	}
+}
+
+func TestLoadConfigAcceptsGroupSlashResourceNotation(t *testing.T) {
+	cfg, err := LoadConfig(writeConfig(t, minimalYAML+`
+readonly:
+  denied_resources:
+    - secrets
+    - /secrets
+    - v1/secrets
+    - /v1/secrets
+    - apps/deployments
+    - apps/v1/deployments
+    - cilium.io/ciliumnetworkpolicies
+    - batch/jobs
+`))
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if got := len(cfg.ReadOnly.DeniedResources); got != 8 {
+		t.Fatalf("DeniedResources = %#v, want 8 entries", cfg.ReadOnly.DeniedResources)
+	}
+}
+
+func TestLoadConfigExplainsTheSlashNotationWhenGivenTheDottedForm(t *testing.T) {
+	_, err := LoadConfig(writeConfig(t, minimalYAML+"readonly:\n  denied_resources:\n    - deployments.apps\n"))
+	if err == nil || !strings.Contains(err.Error(), "apps/deployments") {
+		t.Fatalf("err = %v, want a hint to write apps/deployments", err)
+	}
+}
+
+func TestExampleConfigLoadsWithItsReadOnlySection(t *testing.T) {
+	cfg, err := LoadConfig("../../config.example.yaml")
+	if err != nil {
+		t.Fatalf("LoadConfig(config.example.yaml): %v", err)
+	}
+	if got := cfg.ReadOnly.DeniedResources; len(got) != 1 || got[0] != "secrets" {
+		t.Errorf("DeniedResources = %#v, want [secrets]", got)
+	}
+}

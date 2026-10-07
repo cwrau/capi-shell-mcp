@@ -38,17 +38,17 @@ func TestRealClientsForContextBuildsClientsFromKubeconfigFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RealClientsForContext: %v", err)
 	}
-	if clients.Dynamic == nil || clients.Core == nil || clients.Rbac == nil {
+	if clients.Dynamic == nil || clients.Core == nil || clients.Rbac == nil || clients.Discovery == nil {
 		t.Fatalf("clients = %+v, want all non-nil", clients)
 	}
 }
 
 func TestClientsFromKubeconfigYAMLBuildsClients(t *testing.T) {
-	core, rbac, err := ClientsFromKubeconfigYAML(testKubeconfig)
+	core, rbac, lister, err := ClientsFromKubeconfigYAML(testKubeconfig)
 	if err != nil {
 		t.Fatalf("ClientsFromKubeconfigYAML: %v", err)
 	}
-	if core == nil || rbac == nil {
-		t.Fatal("expected non-nil core and rbac clients")
+	if core == nil || rbac == nil || lister == nil {
+		t.Fatal("expected non-nil core, rbac and discovery clients")
 	}
 }

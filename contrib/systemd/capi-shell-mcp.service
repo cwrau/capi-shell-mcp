@@ -6,7 +6,6 @@ Type=notify
 NotifyAccess=all
 ExecStart=capi-shell-mcp
 Restart=on-failure
-Environment=CAPI_SHELL_MCP_CONFIG=%h/.config/capi-shell/config.yaml
 
 [Install]
 WantedBy=default.target

@@ -16,9 +16,20 @@ import (
 	"github.com/cwrau/capi-shell-mcp/internal/shell"
 )
 
-// maxOutputBytes caps combined stdout+stderr, matching Node's execFile
-// maxBuffer used by the TypeScript implementation this ports.
-const maxOutputBytes = 10 * 1024 * 1024
+const (
+	// DefaultMaxOutputBytes caps combined stdout+stderr that is returned
+	// inline, matching Node's execFile maxBuffer used by the TypeScript
+	// implementation this ports.
+	DefaultMaxOutputBytes = 10 * 1024 * 1024
+
+	// MaxProcessedOutputBytes is the cap for output that a jq filter shrinks
+	// or save_output writes to a file, so nothing of this size reaches the
+	// response. jq decodes a document into several times its text size, so it
+	// stays well below what a whole fan-out could hold in memory.
+	MaxProcessedOutputBytes = 32 * 1024 * 1024
+
+	maxOutputBytes = DefaultMaxOutputBytes
+)
 
 type Result struct {
 	Stdout   string
@@ -53,14 +64,52 @@ func WithKubeconfig(ctx context.Context, execer shell.Execer, workloadKubeconfig
 		Input:          stdin,
 		MaxOutputBytes: maxOutputBytes,
 	})
+	return resultFrom(out, err), nil
+}
+
+func resultFrom(out shell.Output, err error) Result {
 	if err == nil {
-		return Result{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: 0}, nil
+		return Result{Stdout: out.Stdout, Stderr: out.Stderr, ExitCode: 0}
+	}
+	if exitErr, ok := errors.AsType[*shell.ExitError](err); ok {
+		return Result{Stdout: exitErr.Stdout, Stderr: exitErr.Stderr, ExitCode: exitErr.ExitCode}
+	}
+	return Result{Stderr: err.Error(), ExitCode: 1}
+}
+
+// Kubectl runs `kubectl <args>` against workloadKubeconfig with a scrubbed
+// environment: only PATH, plus a private HOME/cache dir and KUBECONFIG
+// pointing at a temp copy of the kubeconfig. Nothing else from this
+// process's environment (credentials, tokens, KUBE* overrides, …) reaches
+// kubectl. args must already have passed kubectlargs.Validate — this
+// function never runs anything but kubectl. maxBytes caps combined
+// stdout+stderr; output beyond it fails the run (see DefaultMaxOutputBytes
+// and MaxProcessedOutputBytes).
+func Kubectl(ctx context.Context, execer shell.Execer, workloadKubeconfig string, args []string, maxBytes int) (Result, error) {
+	dir, err := os.MkdirTemp("", "capi-shell-mcp-kubectl-")
+	if err != nil {
+		return Result{}, fmt.Errorf("exec: creating private dir: %w", err)
+	}
+	defer os.RemoveAll(dir)
+
+	kubeconfigPath := filepath.Join(dir, "kubeconfig")
+	if err := os.WriteFile(kubeconfigPath, []byte(workloadKubeconfig), 0o600); err != nil {
+		return Result{}, fmt.Errorf("exec: writing kubeconfig: %w", err)
 	}
 
-	if exitErr, ok := errors.AsType[*shell.ExitError](err); ok {
-		return Result{Stdout: exitErr.Stdout, Stderr: exitErr.Stderr, ExitCode: exitErr.ExitCode}, nil
+	// A non-nil env is essential: a nil Env means "inherit the parent's".
+	env := []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + dir,
+		"KUBECONFIG=" + kubeconfigPath,
+		"KUBECACHEDIR=" + filepath.Join(dir, "cache"),
 	}
-	return Result{Stderr: err.Error(), ExitCode: 1}, nil
+
+	out, err := execer.ExecFile(ctx, "kubectl", args, shell.Options{
+		Env:            env,
+		MaxOutputBytes: maxBytes,
+	})
+	return resultFrom(out, err), nil
 }
 
 func writeTempKubeconfig(contents string) (string, error) {

@@ -20,6 +20,7 @@ type recordingHandler struct {
 	mu       sync.Mutex
 	clusters []string
 	fail     map[string]string // cluster -> error text, for targets that should fail
+	silent   map[string]bool   // clusters that succeed but return no text
 }
 
 func (h *recordingHandler) handle(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -33,6 +34,9 @@ func (h *recordingHandler) handle(_ context.Context, req *mcp.CallToolRequest) (
 
 	if msg, ok := h.fail[cluster]; ok {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: msg}}, IsError: true}, nil
+	}
+	if h.silent[cluster] {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: ""}}}, nil
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "ok:" + cluster}}}, nil
 }
@@ -235,5 +239,32 @@ func TestWrapFanOutIsolatesPerTargetFailures(t *testing.T) {
 	}
 	if !strings.Contains(resultText(result), "prod/ctx-a/ns-1/good") || !strings.Contains(resultText(result), "boom") {
 		t.Errorf("result text = %q, want both the successful and failed target represented", resultText(result))
+	}
+}
+
+func TestWrapFanOutLeavesOutClustersThatSucceededWithNoText(t *testing.T) {
+	recorder := &recordingHandler{silent: map[string]bool{"prod/ctx-a/ns-1/quiet": true}}
+	_, handler := wrapFanOut(newToolWithClusterParam(), recorder.handle, &fakeResolver{}, false)
+
+	result := callWithRawArgs(t, handler, `{"clusters":["prod/ctx-a/ns-1/loud","prod/ctx-a/ns-1/quiet"]}`)
+	if result.IsError {
+		t.Fatal("a silent success must not make the call an error")
+	}
+	var got []perClusterToolResult
+	if err := json.Unmarshal([]byte(resultText(result)), &got); err != nil {
+		t.Fatalf("json: %v\ntext: %s", err, resultText(result))
+	}
+	if len(got) != 1 || got[0].Cluster != "prod/ctx-a/ns-1/loud" {
+		t.Fatalf("got %+v, want only the cluster that had output", got)
+	}
+}
+
+func TestWrapFanOutAllSilentIsAnEmptyArray(t *testing.T) {
+	recorder := &recordingHandler{silent: map[string]bool{"prod/ctx-a/ns-1/a": true, "prod/ctx-a/ns-1/b": true}}
+	_, handler := wrapFanOut(newToolWithClusterParam(), recorder.handle, &fakeResolver{}, false)
+
+	result := callWithRawArgs(t, handler, `{"clusters":["prod/ctx-a/ns-1/a","prod/ctx-a/ns-1/b"]}`)
+	if strings.TrimSpace(resultText(result)) != "[]" || result.IsError {
+		t.Fatalf("text = %q isError=%v, want [] and no error", resultText(result), result.IsError)
 	}
 }

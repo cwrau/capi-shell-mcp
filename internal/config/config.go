@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -32,18 +33,34 @@ type CacheConfig struct {
 	KubeconfigTTLSeconds  int
 }
 
+// ReadOnlyConfig configures the ClusterRole the read-only ServiceAccount is
+// bound to on every workload cluster.
+type ReadOnlyConfig struct {
+	// DeniedResources are the resources the role does not grant read access
+	// to: "secrets" for a core resource, "group/resource" for any other
+	// ("apps/deployments"), see normalizeDeniedResource. An empty list denies
+	// nothing, so Secrets are readable too. LoadConfig fills in
+	// DefaultDeniedResources when the setting is absent.
+	DeniedResources []string
+}
+
 type AppConfig struct {
 	Kubeconfigs  map[string]KubeconfigSource
 	Transforms   *KubeconfigTransforms
 	CustomFields map[string]string
 	SshuttleHost string
 	Cache        CacheConfig
+	ReadOnly     ReadOnlyConfig
 }
 
 const (
 	defaultClusterListTTLSeconds = 300
 	defaultKubeconfigTTLSeconds  = 3600
 )
+
+// DefaultDeniedResources is what the read-only role keeps back when the
+// configuration does not say otherwise.
+func DefaultDeniedResources() []string { return []string{"secrets"} }
 
 var envVarPattern = regexp.MustCompile(`\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)`)
 
@@ -128,12 +145,18 @@ func LoadConfig(path string) (*AppConfig, error) {
 		}
 	}
 
+	readOnly, err := parseReadOnly(raw["readonly"])
+	if err != nil {
+		return nil, err
+	}
+
 	return &AppConfig{
 		Kubeconfigs:  kubeconfigs,
 		Transforms:   parseTransforms(raw["transforms"]),
 		CustomFields: parseCustomFields(raw["custom_fields"]),
 		SshuttleHost: readSshuttleHost(raw),
 		Cache:        cache,
+		ReadOnly:     readOnly,
 	}, nil
 }
 
@@ -236,4 +259,87 @@ func readSshuttleHost(raw map[string]any) string {
 		return ""
 	}
 	return expandEnv(host)
+}
+
+// parseReadOnly reads the optional "readonly" section:
+//
+//	readonly:
+//	  denied_resources: [secrets, apps/deployments]
+//
+// A missing section, a missing or null denied_resources, or an empty
+// section all mean the default (Secrets only). An explicit empty list
+// ([]) means nothing is denied.
+func parseReadOnly(raw any) (ReadOnlyConfig, error) {
+	if raw == nil {
+		return ReadOnlyConfig{DeniedResources: DefaultDeniedResources()}, nil
+	}
+	section, ok := raw.(map[string]any)
+	if !ok {
+		return ReadOnlyConfig{}, fmt.Errorf("config: readonly must be an object")
+	}
+	rawDenied, present := section["denied_resources"]
+	if !present || rawDenied == nil {
+		return ReadOnlyConfig{DeniedResources: DefaultDeniedResources()}, nil
+	}
+	list, ok := rawDenied.([]any)
+	if !ok {
+		return ReadOnlyConfig{}, fmt.Errorf("config: readonly.denied_resources must be a list of resource names")
+	}
+	denied := make([]string, 0, len(list))
+	for i, v := range list {
+		s, ok := v.(string)
+		if !ok {
+			return ReadOnlyConfig{}, fmt.Errorf("config: readonly.denied_resources[%d] must be a string", i)
+		}
+		s, err := normalizeDeniedResource(s)
+		if err != nil {
+			return ReadOnlyConfig{}, fmt.Errorf("config: readonly.denied_resources[%d]: %w", i, err)
+		}
+		denied = append(denied, s)
+	}
+	return ReadOnlyConfig{DeniedResources: denied}, nil
+}
+
+var (
+	versionPattern = regexp.MustCompile(`^v[0-9]+((alpha|beta)[0-9]+)?$`)
+	// dotlessGroups are the API groups without a dot in their name. Every
+	// other group, CRD groups included, has one, so a dotless first part
+	// that is not in this list is a typo or a subresource.
+	dotlessGroups = map[string]bool{"": true, "apps": true, "batch": true, "policy": true, "autoscaling": true, "extensions": true}
+)
+
+// normalizeDeniedResource checks one denied_resources entry and returns it
+// trimmed and lowercased. The notation is
+//
+//	resource                 a core resource:        secrets
+//	group/resource           anything else:          apps/deployments
+//	group/version/resource   like the API path:      apps/v1/deployments
+//
+// The core group may be written as an empty group (/secrets, /v1/secrets)
+// and a version alone also names it (v1/secrets). A version only identifies
+// the group: RBAC does not tell versions apart, so the resource is denied in
+// all of them. Subresources follow their parent and cannot be listed.
+//
+// Entries that could not match anything are rejected instead of accepted
+// as a rule that silently denies nothing.
+func normalizeDeniedResource(raw string) (string, error) {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	parts := strings.Split(s, "/")
+	resource := parts[len(parts)-1]
+	switch {
+	case s == "" || resource == "":
+		return "", fmt.Errorf("%q must name a resource, like \"secrets\" or \"apps/deployments\"", raw)
+	case len(parts) > 3:
+		return "", fmt.Errorf("%q has too many parts: write group/resource or group/version/resource; subresources follow their parent and cannot be listed", raw)
+	case len(parts) == 1 && strings.Contains(resource, "."):
+		name, group, _ := strings.Cut(resource, ".")
+		return "", fmt.Errorf("%q looks like a resource with its group: write the group first, like %q", raw, group+"/"+name)
+	case len(parts) == 3 && !versionPattern.MatchString(parts[1]):
+		return "", fmt.Errorf("%q: the middle part must be an API version like v1, got %q", raw, parts[1])
+	case len(parts) == 2 && !versionPattern.MatchString(parts[0]) && !strings.Contains(parts[0], ".") && !dotlessGroups[parts[0]]:
+		return "", fmt.Errorf("%q: %q is no API group (is it a subresource? those follow their parent and cannot be listed)", raw, parts[0])
+	case len(parts) == 3 && !strings.Contains(parts[0], ".") && !dotlessGroups[parts[0]]:
+		return "", fmt.Errorf("%q: %q is no API group", raw, parts[0])
+	}
+	return s, nil
 }

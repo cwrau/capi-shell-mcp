@@ -134,3 +134,57 @@ func TestMountToolsCallReturnsCleanErrorForUnknownTarget(t *testing.T) {
 		t.Errorf("error text = %q, want it to mention the target", text)
 	}
 }
+
+// A tool the upstream marks read-only must be served with the minted
+// read-only kubeconfig, every other tool with the admin one.
+func TestMountToolsRoutesReadOnlyToolsToReadonlyCredentials(t *testing.T) {
+	tests := []struct {
+		tool         string
+		wantAdmin    int
+		wantReadonly int
+	}{
+		{tool: "resources_list", wantAdmin: 0, wantReadonly: 1},
+		{tool: "resources_delete", wantAdmin: 1, wantReadonly: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.tool, func(t *testing.T) {
+			resolver := &fakeResolver{err: errors.New("stop here")}
+			srv := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v0.0.1"}, nil)
+			if err := MountTools(context.Background(), srv, resolver); err != nil {
+				t.Fatalf("MountTools: %v", err)
+			}
+			// Mounting builds every toolset, and some of them ask the cluster
+			// inspector (which serves the default target with admin rights)
+			// for credentials on the way. What matters here is which
+			// credentials the tool call itself uses, so count from now on.
+			baseAdmin, baseReadonly := resolver.calls(), resolver.readonlyCallCount()
+			ctx := context.Background()
+			t1, t2 := mcp.NewInMemoryTransports()
+			if _, err := srv.Connect(ctx, t1, nil); err != nil {
+				t.Fatalf("Connect server: %v", err)
+			}
+			client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v0.0.1"}, nil)
+			session, err := client.Connect(ctx, t2, nil)
+			if err != nil {
+				t.Fatalf("Connect client: %v", err)
+			}
+			defer session.Close()
+
+			_, err = session.CallTool(ctx, &mcp.CallToolParams{
+				Name: tt.tool,
+				Arguments: map[string]any{
+					"apiVersion": "v1", "kind": "Secret", "name": "x", "namespace": "default",
+					"clusters": []string{"prod/ctx-a/ns/c1"},
+				},
+			})
+			if err != nil {
+				t.Fatalf("CallTool: %v", err)
+			}
+			gotAdmin, gotReadonly := resolver.calls()-baseAdmin, resolver.readonlyCallCount()-baseReadonly
+			if gotAdmin != tt.wantAdmin || gotReadonly != tt.wantReadonly {
+				t.Errorf("admin=%d readonly=%d, want admin=%d readonly=%d",
+					gotAdmin, gotReadonly, tt.wantAdmin, tt.wantReadonly)
+			}
+		})
+	}
+}

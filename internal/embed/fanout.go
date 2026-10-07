@@ -149,16 +149,24 @@ func runFanOut(ctx context.Context, handler mcp.ToolHandler, req *mcp.CallToolRe
 	}
 	wg.Wait()
 
-	b, err := json.MarshalIndent(results, "", "  ")
-	if err != nil {
-		return errorResult(err.Error())
-	}
+	// Like our own exec tools: a cluster that succeeded with no text has
+	// nothing to report, so it is left out rather than listed empty — an
+	// empty array means nothing to report anywhere. Errors always stay.
+	kept := make([]perClusterToolResult, 0, len(results))
 	isError := false
 	for _, r := range results {
+		if r.Error == "" && !r.IsError && r.Text == "" {
+			continue
+		}
 		if r.Error != "" || r.IsError {
 			isError = true
-			break
 		}
+		kept = append(kept, r)
+	}
+
+	b, err := json.MarshalIndent(kept, "", "  ")
+	if err != nil {
+		return errorResult(err.Error())
 	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}, IsError: isError}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	kmcpconfig "github.com/containers/kubernetes-mcp-server/pkg/config"
 )
@@ -31,6 +32,9 @@ users:
 type fakeResolver struct {
 	mu             sync.Mutex
 	resolveCalls   int
+	readonlyCalls  int
+	readonlyTTL    time.Duration
+	readonlyByID   map[string]string
 	listTargetsErr error
 	listCalls      int
 	targets        []string
@@ -68,6 +72,28 @@ func (r *fakeResolver) ResolveTarget(_ context.Context, target string) (string, 
 	return kc, nil
 }
 
+func (r *fakeResolver) ResolveTargetReadonly(_ context.Context, target string) (string, error) {
+	r.mu.Lock()
+	r.readonlyCalls++
+	r.mu.Unlock()
+	if r.err != nil {
+		return "", r.err
+	}
+	kc, ok := r.readonlyByID[target]
+	if !ok {
+		return "", errors.New("no such read-only target in fixture")
+	}
+	return kc, nil
+}
+
+func (r *fakeResolver) ReadonlyTTL() time.Duration { return r.readonlyTTL }
+
+func (r *fakeResolver) readonlyCallCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.readonlyCalls
+}
+
 func (r *fakeResolver) calls() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -75,14 +101,14 @@ func (r *fakeResolver) calls() int {
 }
 
 func TestCapiProviderIsAlwaysMultiTarget(t *testing.T) {
-	p := newCapiProvider(&fakeResolver{}, kmcpconfig.New())
+	p := newCapiProvider(&fakeResolver{}, kmcpconfig.New(), false)
 	if !p.IsMultiTarget() {
 		t.Error("IsMultiTarget() = false, want true")
 	}
 }
 
 func TestCapiProviderTargetParameterNameIsCluster(t *testing.T) {
-	p := newCapiProvider(&fakeResolver{}, kmcpconfig.New())
+	p := newCapiProvider(&fakeResolver{}, kmcpconfig.New(), false)
 	if p.GetTargetParameterName() != "cluster" {
 		t.Errorf("GetTargetParameterName() = %q, want %q", p.GetTargetParameterName(), "cluster")
 	}
@@ -90,7 +116,7 @@ func TestCapiProviderTargetParameterNameIsCluster(t *testing.T) {
 
 func TestCapiProviderGetTargetsDelegatesToResolver(t *testing.T) {
 	resolver := &fakeResolver{targets: []string{"prod/ctx-a/ns/c1", "prod/ctx-a/ns/c2"}}
-	p := newCapiProvider(resolver, kmcpconfig.New())
+	p := newCapiProvider(resolver, kmcpconfig.New(), false)
 
 	got, err := p.GetTargets(context.Background())
 	if err != nil {
@@ -102,7 +128,7 @@ func TestCapiProviderGetTargetsDelegatesToResolver(t *testing.T) {
 }
 
 func TestCapiProviderReloadConfigRejectsNil(t *testing.T) {
-	p := newCapiProvider(&fakeResolver{}, kmcpconfig.New())
+	p := newCapiProvider(&fakeResolver{}, kmcpconfig.New(), false)
 	if err := p.ReloadConfig(context.Background(), nil); err == nil {
 		t.Error("ReloadConfig(nil) = nil, want error")
 	}
@@ -113,7 +139,7 @@ func TestCapiProviderReloadedConfigIsUsedForNewManagersAndPublishedToExisting(t 
 		"prod/ctx-a/ns/c1": fakeKubeconfig,
 		"prod/ctx-a/ns/c2": fakeKubeconfig,
 	}}
-	p := newCapiProvider(resolver, kmcpconfig.New())
+	p := newCapiProvider(resolver, kmcpconfig.New(), false)
 	defer p.Close()
 
 	if _, err := p.GetDerivedKubernetes(context.Background(), "prod/ctx-a/ns/c1"); err != nil {
@@ -127,22 +153,22 @@ func TestCapiProviderReloadedConfigIsUsedForNewManagersAndPublishedToExisting(t 
 	if _, err := p.GetDerivedKubernetes(context.Background(), "prod/ctx-a/ns/c2"); err != nil {
 		t.Fatalf("GetDerivedKubernetes c2: %v", err)
 	}
-	if got := p.managers["prod/ctx-a/ns/c2"].Config(); got != reloaded {
+	if got := p.managers["prod/ctx-a/ns/c2"].mgr.Config(); got != reloaded {
 		t.Error("manager built after ReloadConfig does not use the reloaded config")
 	}
-	if got := p.managers["prod/ctx-a/ns/c1"].Config(); got == reloaded {
+	if got := p.managers["prod/ctx-a/ns/c1"].mgr.Config(); got == reloaded {
 		t.Error("existing manager picked up the reloaded config before PublishKubernetesConfig")
 	}
 
 	p.PublishKubernetesConfig(reloaded)
-	if got := p.managers["prod/ctx-a/ns/c1"].Config(); got != reloaded {
+	if got := p.managers["prod/ctx-a/ns/c1"].mgr.Config(); got != reloaded {
 		t.Error("existing manager did not pick up the config after PublishKubernetesConfig")
 	}
 }
 
 func TestCapiProviderGetDerivedKubernetesBuildsAClientForAKnownTarget(t *testing.T) {
 	resolver := &fakeResolver{kubeconfigByID: map[string]string{"prod/ctx-a/ns/c1": fakeKubeconfig}}
-	p := newCapiProvider(resolver, kmcpconfig.New())
+	p := newCapiProvider(resolver, kmcpconfig.New(), false)
 	defer p.Close()
 
 	k, err := p.GetDerivedKubernetes(context.Background(), "prod/ctx-a/ns/c1")
@@ -156,7 +182,7 @@ func TestCapiProviderGetDerivedKubernetesBuildsAClientForAKnownTarget(t *testing
 
 func TestCapiProviderGetDerivedKubernetesCachesManagerPerTarget(t *testing.T) {
 	resolver := &fakeResolver{kubeconfigByID: map[string]string{"prod/ctx-a/ns/c1": fakeKubeconfig}}
-	p := newCapiProvider(resolver, kmcpconfig.New())
+	p := newCapiProvider(resolver, kmcpconfig.New(), false)
 	defer p.Close()
 
 	if _, err := p.GetDerivedKubernetes(context.Background(), "prod/ctx-a/ns/c1"); err != nil {
@@ -172,7 +198,7 @@ func TestCapiProviderGetDerivedKubernetesCachesManagerPerTarget(t *testing.T) {
 
 func TestCapiProviderGetDerivedKubernetesWrapsResolverErrorAsUnknownTarget(t *testing.T) {
 	resolver := &fakeResolver{err: errors.New("boom")}
-	p := newCapiProvider(resolver, kmcpconfig.New())
+	p := newCapiProvider(resolver, kmcpconfig.New(), false)
 	defer p.Close()
 
 	_, err := p.GetDerivedKubernetes(context.Background(), "nope/ctx/ns/c1")
@@ -181,5 +207,48 @@ func TestCapiProviderGetDerivedKubernetesWrapsResolverErrorAsUnknownTarget(t *te
 	}
 	if !errors.Is(err, errUnknownTarget) {
 		t.Errorf("err = %v, want it to wrap errUnknownTarget", err)
+	}
+}
+
+func TestCapiProviderReadonlyUsesTheReadonlyKubeconfig(t *testing.T) {
+	resolver := &fakeResolver{readonlyByID: map[string]string{"prod/ctx-a/ns/c1": fakeKubeconfig}}
+	p := newCapiProvider(resolver, kmcpconfig.New(), true)
+	defer p.Close()
+
+	if _, err := p.GetDerivedKubernetes(context.Background(), "prod/ctx-a/ns/c1"); err != nil {
+		t.Fatalf("GetDerivedKubernetes: %v", err)
+	}
+	if resolver.calls() != 0 {
+		t.Errorf("admin ResolveTarget called %d times, want 0 for a read-only provider", resolver.calls())
+	}
+	if resolver.readonlyCallCount() != 1 {
+		t.Errorf("ResolveTargetReadonly called %d times, want 1", resolver.readonlyCallCount())
+	}
+}
+
+func TestCapiProviderReadonlyRebuildsManagerAfterHalfTheTokenLifetime(t *testing.T) {
+	resolver := &fakeResolver{
+		readonlyByID: map[string]string{"prod/ctx-a/ns/c1": fakeKubeconfig},
+		readonlyTTL:  200 * time.Millisecond,
+	}
+	p := newCapiProvider(resolver, kmcpconfig.New(), true)
+	defer p.Close()
+
+	if _, err := p.GetDerivedKubernetes(context.Background(), "prod/ctx-a/ns/c1"); err != nil {
+		t.Fatalf("first GetDerivedKubernetes: %v", err)
+	}
+	if _, err := p.GetDerivedKubernetes(context.Background(), "prod/ctx-a/ns/c1"); err != nil {
+		t.Fatalf("second GetDerivedKubernetes: %v", err)
+	}
+	if resolver.readonlyCallCount() != 1 {
+		t.Fatalf("ResolveTargetReadonly called %d times before expiry, want 1 (cached)", resolver.readonlyCallCount())
+	}
+
+	time.Sleep(150 * time.Millisecond)
+	if _, err := p.GetDerivedKubernetes(context.Background(), "prod/ctx-a/ns/c1"); err != nil {
+		t.Fatalf("GetDerivedKubernetes after expiry: %v", err)
+	}
+	if resolver.readonlyCallCount() != 2 {
+		t.Errorf("ResolveTargetReadonly called %d times after expiry, want 2 (token re-minted)", resolver.readonlyCallCount())
 	}
 }

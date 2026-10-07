@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	kmcpconfig "github.com/containers/kubernetes-mcp-server/pkg/config"
 	kmcpkube "github.com/containers/kubernetes-mcp-server/pkg/kubernetes"
@@ -25,10 +26,14 @@ var errUnknownTarget = kmcpkube.ErrUnknownTarget
 // TargetResolver is the seam our CAPI cluster-selection logic plugs in
 // through: ResolveTarget turns one of our composite target strings into
 // the admin kubeconfig YAML for that workload cluster (fetched/cached/
-// tunneled exactly like our own tools), and ListTargets enumerates every
-// currently-known target string.
+// tunneled exactly like our own tools), ResolveTargetReadonly returns a
+// freshly minted, RBAC-restricted kubeconfig for the same cluster (valid for
+// ReadonlyTTL), and ListTargets enumerates every currently-known target
+// string.
 type TargetResolver interface {
 	ResolveTarget(ctx context.Context, target string) (kubeconfigYAML string, err error)
+	ResolveTargetReadonly(ctx context.Context, target string) (kubeconfigYAML string, err error)
+	ReadonlyTTL() time.Duration
 	ListTargets(ctx context.Context) ([]string, error)
 }
 
@@ -39,18 +44,30 @@ const targetParameterName = "cluster"
 // capiProvider implements kubernetes.Provider by routing every target
 // lookup through our own CAPI cluster-discovery/kubeconfig-cache/sshuttle
 // pipeline (via resolver) instead of a single static kubeconfig.
+//
+// A readonly provider hands out clients built from the minted read-only
+// kubeconfig instead of the admin one, so every tool served by it is bound
+// by the read-only RBAC regardless of what the tool itself tries to do. Its
+// short-lived token means cached managers expire after half the token's
+// lifetime.
 type capiProvider struct {
 	resolver TargetResolver
+	readonly bool
 
 	mu       sync.Mutex
 	cfg      *kmcpconfig.Config
-	managers map[string]*kmcpkube.Manager
+	managers map[string]managerEntry
+}
+
+type managerEntry struct {
+	mgr     *kmcpkube.Manager
+	expires time.Time // zero = never
 }
 
 var _ kmcpkube.Provider = (*capiProvider)(nil)
 
-func newCapiProvider(resolver TargetResolver, cfg *kmcpconfig.Config) *capiProvider {
-	return &capiProvider{resolver: resolver, cfg: cfg, managers: make(map[string]*kmcpkube.Manager)}
+func newCapiProvider(resolver TargetResolver, cfg *kmcpconfig.Config, readonly bool) *capiProvider {
+	return &capiProvider{resolver: resolver, cfg: cfg, readonly: readonly, managers: make(map[string]managerEntry)}
 }
 
 // --- api.TargetProvider ---
@@ -77,13 +94,17 @@ func (p *capiProvider) GetDerivedKubernetes(ctx context.Context, target string) 
 
 func (p *capiProvider) managerForTarget(ctx context.Context, target string) (*kmcpkube.Manager, error) {
 	p.mu.Lock()
-	mgr, ok := p.managers[target]
+	entry, ok := p.managers[target]
 	p.mu.Unlock()
-	if ok {
-		return mgr, nil
+	if ok && (entry.expires.IsZero() || time.Now().Before(entry.expires)) {
+		return entry.mgr, nil
 	}
 
-	kubeconfigYAML, err := p.resolver.ResolveTarget(ctx, target)
+	resolve := p.resolver.ResolveTarget
+	if p.readonly {
+		resolve = p.resolver.ResolveTargetReadonly
+	}
+	kubeconfigYAML, err := resolve(ctx, target)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s: %w", errUnknownTarget, target, err)
 	}
@@ -106,9 +127,20 @@ func (p *capiProvider) managerForTarget(ctx context.Context, target string) (*km
 		return nil, fmt.Errorf("embed: building manager for target %s: %w", target, err)
 	}
 
+	fresh := managerEntry{mgr: newMgr}
+	if p.readonly {
+		if ttl := p.resolver.ReadonlyTTL(); ttl > 0 {
+			fresh.expires = time.Now().Add(ttl / 2)
+		}
+	}
 	p.mu.Lock()
-	p.managers[target] = newMgr
+	p.managers[target] = fresh
 	p.mu.Unlock()
+	if ok {
+		// The replaced manager's token outlives the grace period, so calls
+		// already running on it finish before it is closed.
+		time.AfterFunc(p.resolver.ReadonlyTTL()/4, entry.mgr.Close)
+	}
 	return newMgr, nil
 }
 
@@ -131,15 +163,15 @@ func (p *capiProvider) ReloadConfig(_ context.Context, cfg *kmcpconfig.Config) e
 func (p *capiProvider) PublishKubernetesConfig(cfg *kmcpconfig.Config) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for _, mgr := range p.managers {
-		mgr.SetConfig(cfg)
+	for _, e := range p.managers {
+		e.mgr.SetConfig(cfg)
 	}
 }
 
 func (p *capiProvider) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for _, mgr := range p.managers {
-		mgr.Close()
+	for _, e := range p.managers {
+		e.mgr.Close()
 	}
 }

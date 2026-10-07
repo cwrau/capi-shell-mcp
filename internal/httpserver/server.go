@@ -30,11 +30,10 @@ func Start(mcpServer *mcp.Server, port int, execer shell.Execer) (*Server, error
 	if err != nil {
 		return nil, fmt.Errorf("httpserver: listening on 127.0.0.1:%d: %w", port, err)
 	}
-	actualPort := ln.Addr().(*net.TCPAddr).Port
 
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return mcpServer }, nil)
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", hostCheckMiddleware(actualPort, handler))
+	mux.Handle("/mcp", hostCheckMiddleware(handler))
 
 	httpSrv := &http.Server{Handler: mux}
 	go func() { _ = httpSrv.Serve(ln) }() // http.ErrServerClosed after Shutdown is expected

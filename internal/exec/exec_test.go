@@ -113,3 +113,109 @@ func TestExecWithKubeconfigSetsKubeconfigAndOpenStackEnvVars(t *testing.T) {
 		t.Errorf("env = %v, missing matching KUBECONFIG", execer.gotOpts.Env)
 	}
 }
+
+type kubectlProbe struct {
+	file           string
+	args           []string
+	env            []string
+	kubeconfig     string
+	maxOutputBytes int
+}
+
+func (p *kubectlProbe) ExecFile(_ context.Context, file string, args []string, opts shell.Options) (shell.Output, error) {
+	p.file, p.args, p.env, p.maxOutputBytes = file, args, opts.Env, opts.MaxOutputBytes
+	for _, kv := range opts.Env {
+		if path, ok := strings.CutPrefix(kv, "KUBECONFIG="); ok {
+			b, _ := os.ReadFile(path)
+			p.kubeconfig = string(b)
+		}
+	}
+	return shell.Output{Stdout: "ok"}, nil
+}
+
+func TestKubectlRunsOnlyKubectlWithTheGivenArgs(t *testing.T) {
+	probe := &kubectlProbe{}
+	result, err := Kubectl(context.Background(), probe, "kc-content", []string{"get", "pods", "-n", "default"}, DefaultMaxOutputBytes)
+	if err != nil {
+		t.Fatalf("Kubectl: %v", err)
+	}
+	if probe.file != "kubectl" {
+		t.Errorf("file = %q, want kubectl", probe.file)
+	}
+	if strings.Join(probe.args, " ") != "get pods -n default" {
+		t.Errorf("args = %v", probe.args)
+	}
+	if result.Stdout != "ok" || result.ExitCode != 0 {
+		t.Errorf("result = %+v", result)
+	}
+	if probe.kubeconfig != "kc-content" {
+		t.Errorf("kubeconfig seen by kubectl = %q", probe.kubeconfig)
+	}
+}
+
+func TestKubectlScrubsTheEnvironment(t *testing.T) {
+	t.Setenv("CAPI_TEST_SECRET", "leak-me")
+	t.Setenv("KUBECTL_PLUGINS_PATH", "/evil")
+	t.Setenv("OS_PASSWORD", "hunter2")
+
+	probe := &kubectlProbe{}
+	if _, err := Kubectl(context.Background(), probe, "kc", []string{"version", "--client"}, DefaultMaxOutputBytes); err != nil {
+		t.Fatalf("Kubectl: %v", err)
+	}
+
+	if probe.env == nil {
+		t.Fatal("env is nil — exec would inherit the whole parent environment")
+	}
+	keys := map[string]bool{}
+	for _, kv := range probe.env {
+		k, _, _ := strings.Cut(kv, "=")
+		keys[k] = true
+		if strings.Contains(kv, "leak-me") || strings.Contains(kv, "hunter2") || strings.Contains(kv, "/evil") {
+			t.Errorf("env leaked a parent variable: %q", kv)
+		}
+	}
+	for _, want := range []string{"PATH", "HOME", "KUBECONFIG", "KUBECACHEDIR"} {
+		if !keys[want] {
+			t.Errorf("env missing %s: %v", want, probe.env)
+		}
+	}
+	if len(keys) != 4 {
+		t.Errorf("env keys = %v, want exactly PATH/HOME/KUBECONFIG/KUBECACHEDIR", keys)
+	}
+}
+
+func TestKubectlRemovesItsPrivateDir(t *testing.T) {
+	before := tempFileCount(t)
+	if _, err := Kubectl(context.Background(), &kubectlProbe{}, "kc", []string{"api-versions"}, DefaultMaxOutputBytes); err != nil {
+		t.Fatalf("Kubectl: %v", err)
+	}
+	if after := tempFileCount(t); after != before {
+		t.Errorf("temp entries before=%d after=%d, want unchanged", before, after)
+	}
+}
+
+func TestKubectlReportsNonZeroExit(t *testing.T) {
+	execer := &fakeExecer{err: &shell.ExitError{ExitCode: 1, Stderr: "boom", Err: os.ErrInvalid}}
+	result, err := Kubectl(context.Background(), execer, "kc", []string{"get", "pods"}, DefaultMaxOutputBytes)
+	if err != nil {
+		t.Fatalf("Kubectl: %v", err)
+	}
+	if result.ExitCode != 1 || result.Stderr != "boom" {
+		t.Errorf("result = %+v", result)
+	}
+}
+
+func TestKubectlPassesTheOutputCapItIsGivenToTheExecer(t *testing.T) {
+	for _, limit := range []int{DefaultMaxOutputBytes, MaxProcessedOutputBytes, 1234} {
+		probe := &kubectlProbe{}
+		if _, err := Kubectl(context.Background(), probe, "kc", []string{"get", "pods"}, limit); err != nil {
+			t.Fatalf("Kubectl: %v", err)
+		}
+		if probe.maxOutputBytes != limit {
+			t.Errorf("execer saw cap %d, want %d", probe.maxOutputBytes, limit)
+		}
+	}
+	if MaxProcessedOutputBytes <= DefaultMaxOutputBytes {
+		t.Errorf("the cap for output that is filtered or saved (%d) must exceed the inline cap (%d)", MaxProcessedOutputBytes, DefaultMaxOutputBytes)
+	}
+}

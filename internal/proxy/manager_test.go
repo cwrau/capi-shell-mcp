@@ -290,7 +290,10 @@ func TestEnsureProxyUnderSystemdSpawnsViaSystemdRunWhenNoUnitIsActive(t *testing
 	}
 }
 
-func TestEnsureProxyUnderSystemdExtendsRuntimeMaxSecWhenUnitAlreadyActive(t *testing.T) {
+func TestEnsureProxyUnderSystemdReusesUnitAsIsWhenAlreadyActive(t *testing.T) {
+	// systemctl set-property can't change RuntimeMaxSec on an already-running
+	// unit (confirmed live: it's rejected outright), so an already-active
+	// unit is left alone entirely — no set-property attempt at all.
 	execer := &scriptedExecer{handler: func(file string, args []string) (shell.Output, error) {
 		if file == "systemctl" && args[1] == "is-active" {
 			return shell.Output{Stdout: "active\n"}, nil
@@ -307,19 +310,9 @@ func TestEnsureProxyUnderSystemdExtendsRuntimeMaxSecWhenUnitAlreadyActive(t *tes
 		if call.file == "systemd-run" {
 			t.Fatalf("unexpected systemd-run call when unit already active: %v", call.args)
 		}
-	}
-	var setPropertyCall *recordedCall
-	for i := range execer.calls {
-		if call := execer.calls[i]; call.file == "systemctl" && call.args[1] == "set-property" {
-			setPropertyCall = &execer.calls[i]
+		if call.file == "systemctl" && len(call.args) > 1 && call.args[1] == "set-property" {
+			t.Fatalf("unexpected systemctl set-property call when unit already active: %v", call.args)
 		}
-	}
-	if setPropertyCall == nil {
-		t.Fatalf("no systemctl set-property call among %v", execer.calls)
-	}
-	wantArgs := []string{"--user", "set-property", "capi-shell-api-endpoint-proxy-sshuttle-10.1.2.5:6443.service", "RuntimeMaxSec=60"}
-	if strings.Join(setPropertyCall.args, "|") != strings.Join(wantArgs, "|") {
-		t.Errorf("args = %v, want %v", setPropertyCall.args, wantArgs)
 	}
 }
 

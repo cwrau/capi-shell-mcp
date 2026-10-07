@@ -18,6 +18,9 @@ type Clients struct {
 	Dynamic dynamic.Interface
 	Core    corev1client.CoreV1Interface
 	Rbac    rbacv1client.RbacV1Interface
+	// Discovery is only needed to generate the read-only role; it is nil
+	// for clients a test builds without one.
+	Discovery capi.APIResourceLister
 }
 
 // ClientsForContextFunc resolves the clients for one (kubeconfig entry,
@@ -35,16 +38,16 @@ func RealClientsForContext(src config.KubeconfigSource, context string) (*Client
 	return clientsFromKubeconfigBytes(data, context)
 }
 
-// ClientsFromKubeconfigYAML builds Core/Rbac clients directly from a
+// ClientsFromKubeconfigYAML builds Core/Rbac/Discovery clients directly from a
 // kubeconfig YAML string (its current-context) — used to mint a read-only
 // token against the *workload* cluster itself, via its own admin
 // kubeconfig, rather than against a configured kubeconfig entry.
-func ClientsFromKubeconfigYAML(kubeconfigYAML string) (corev1client.CoreV1Interface, rbacv1client.RbacV1Interface, error) {
+func ClientsFromKubeconfigYAML(kubeconfigYAML string) (corev1client.CoreV1Interface, rbacv1client.RbacV1Interface, capi.APIResourceLister, error) {
 	clients, err := clientsFromKubeconfigBytes([]byte(kubeconfigYAML), "")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return clients.Core, clients.Rbac, nil
+	return clients.Core, clients.Rbac, clients.Discovery, nil
 }
 
 func clientsFromKubeconfigBytes(data []byte, context string) (*Clients, error) {
@@ -60,5 +63,5 @@ func clientsFromKubeconfigBytes(data []byte, context string) (*Clients, error) {
 	if err != nil {
 		return nil, fmt.Errorf("server: building typed client: %w", err)
 	}
-	return &Clients{Dynamic: dyn, Core: clientset.CoreV1(), Rbac: clientset.RbacV1()}, nil
+	return &Clients{Dynamic: dyn, Core: clientset.CoreV1(), Rbac: clientset.RbacV1(), Discovery: clientset.Discovery()}, nil
 }

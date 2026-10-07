@@ -17,6 +17,9 @@ func (e *recordingExecer) ExecFile(_ context.Context, file string, args []string
 }
 
 func TestNotifySystemdNoopWhenNotifySocketUnset(t *testing.T) {
+	// The ambient environment may be a systemd unit that already has this
+	// set; the code treats empty as unset, so force that.
+	t.Setenv("NOTIFY_SOCKET", "")
 	execer := &recordingExecer{}
 	notifySystemd(execer, "--ready")
 	if len(execer.calls) != 0 {

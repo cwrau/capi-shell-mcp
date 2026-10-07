@@ -24,10 +24,13 @@ type ToolServer struct {
 	proxyMgr          *proxy.Manager
 	execer            shell.Execer
 	clientsForContext ClientsForContextFunc
-	// clientsFromReadonlySource builds Core/Rbac clients directly from a
+	// clientsFromReadonlySource builds Core/Rbac/Discovery clients directly from a
 	// kubeconfig YAML string; overridable in tests. Production default is
 	// ClientsFromKubeconfigYAML.
-	clientsFromReadonlySource func(kubeconfigYAML string) (corev1client.CoreV1Interface, rbacv1client.RbacV1Interface, error)
+	clientsFromReadonlySource func(kubeconfigYAML string) (corev1client.CoreV1Interface, rbacv1client.RbacV1Interface, capi.APIResourceLister, error)
+	// outputDirOverride replaces the default saved-output directory (under
+	// XDG_RUNTIME_DIR); only tests set it.
+	outputDirOverride string
 }
 
 func NewToolServer(cfg *config.AppConfig, store *capi.Store, proxyMgr *proxy.Manager, execer shell.Execer, clientsForContext ClientsForContextFunc) *ToolServer {
