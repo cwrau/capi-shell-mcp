@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.1.0](https://github.com/cwrau/capi-shell-mcp/compare/v2.0.0...v2.1.0) (2026-10-09)
+
+
+### Features
+
+* bundle systemd unit files into release tarballs ([75570c7](https://github.com/cwrau/capi-shell-mcp/commit/75570c716761cdde697e8276935238c26d363fe7))
+* include LICENSE in release tarballs ([47c03b2](https://github.com/cwrau/capi-shell-mcp/commit/47c03b2e90d2515b4e89625f59852b40246bb7c9))
+
+
+### Bug Fixes
+
+* **deps:** update kubernetes monorepo to v0.37.1 ([#33](https://github.com/cwrau/capi-shell-mcp/issues/33)) ([0c496da](https://github.com/cwrau/capi-shell-mcp/commit/0c496da885b31133dc8d727013d73784ab5963aa))
+* **deps:** update module golang.org/x/sync to v0.24.0 ([#36](https://github.com/cwrau/capi-shell-mcp/issues/36)) ([8c0d189](https://github.com/cwrau/capi-shell-mcp/commit/8c0d189ce47adc553a7b65aff93b18527f1b49e8))
+* strip debug symbols from release binaries ([a86a3d9](https://github.com/cwrau/capi-shell-mcp/commit/a86a3d95ad3d3d4b1e4b96baeb6f2e881468b288))
+
 ## [2.0.0](https://github.com/cwrau/capi-shell-mcp/compare/v1.0.0...v2.0.0) (2026-09-25)
 
 
