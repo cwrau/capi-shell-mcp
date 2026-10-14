@@ -42,14 +42,18 @@ func clusterErrResult(id clusterID, err error) clusterExecResult {
 // rest. Errors and non-zero exits always stay, so an absent cluster
 // reliably means "ran fine and printed nothing". The result is always a
 // JSON array, "[]" when nothing is left.
-func finishExecResults(results []clusterExecResult) (*mcp.CallToolResult, error) {
+//
+// A failed cluster makes the whole result a tool error, unless
+// ignoreErrors says that failures on some clusters are expected: the
+// failures are still listed, only the error flag stays off.
+func finishExecResults(results []clusterExecResult, ignoreErrors bool) (*mcp.CallToolResult, error) {
 	kept := make([]clusterExecResult, 0, len(results))
 	isError := false
 	for _, r := range results {
 		if r.hasNothingToReport() {
 			continue
 		}
-		if r.Error != "" || r.ExitCode != 0 {
+		if (r.Error != "" || r.ExitCode != 0) && !ignoreErrors {
 			isError = true
 		}
 		kept = append(kept, r)
@@ -136,7 +140,7 @@ func (s *ToolServer) ExecInCluster(ctx context.Context, in ExecInput) (*mcp.Call
 		}(i, target)
 	}
 	wg.Wait()
-	return finishExecResults(results)
+	return finishExecResults(results, in.IgnoreErrors)
 }
 
 // execReadonlyOneTarget runs `kubectl <args>` with an impersonating
@@ -190,7 +194,7 @@ func (s *ToolServer) ExecInClusterReadonly(ctx context.Context, in ReadonlyExecI
 		}(i, target)
 	}
 	wg.Wait()
-	return finishExecResults(results)
+	return finishExecResults(results, in.IgnoreErrors)
 }
 
 // maxParallelReadonly bounds how many clusters one exec_in_cluster_readonly
