@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -562,21 +563,52 @@ func TestExecReadonlyJQFiltersJSONOutputInProcess(t *testing.T) {
 		Args:     []string{"get", "pods", "-o", "json"},
 		JQ:       ".items[].metadata.name",
 	})
-	if len(results) != 1 || results[0].Stdout != "a\nb\n" {
-		t.Fatalf("results = %+v, want raw names", results)
+	if len(results) != 1 || results[0].Stdout != "" {
+		t.Fatalf("results = %+v, want the filtered output in result and no stdout", results)
+	}
+	assertJSONEqual(t, results[0].Result, `["a","b"]`)
+}
+
+// assertJSONEqual compares a result field to the JSON text want, ignoring
+// formatting.
+func assertJSONEqual(t *testing.T, got json.RawMessage, want string) {
+	t.Helper()
+	var g, w any
+	if err := json.Unmarshal(got, &g); err != nil {
+		t.Fatalf("result %q is not JSON: %v", got, err)
+	}
+	if err := json.Unmarshal([]byte(want), &w); err != nil {
+		t.Fatalf("bad expectation %q: %v", want, err)
+	}
+	if !reflect.DeepEqual(g, w) {
+		t.Errorf("result = %s, want %s", got, want)
 	}
 }
 
-func TestExecReadonlyJQRendersNonStringsAsIndentedJSON(t *testing.T) {
-	s, _ := newFakeToolServer(t, "cluster-1")
-	s.execer.(*fakeExecer).scriptedStdout = podListJSON
-	results, _ := readonlyResults(t, s, ReadonlyExecInput{
-		Clusters: []string{clusterOneTarget},
-		Args:     []string{"get", "pods", "-o", "json"},
-		JQ:       ".items[0].metadata",
-	})
-	if len(results) != 1 || results[0].Stdout != "{\n  \"name\": \"a\"\n}\n" {
-		t.Fatalf("results = %+v", results)
+func TestExecReadonlyJQResultIsAJSONValueNotAString(t *testing.T) {
+	for name, tc := range map[string]struct{ jq, want string }{
+		"several outputs become an array": {".items[].metadata.name", `["a","b"]`},
+		"one object stays an object":      {".items[0].metadata", `{"name":"a"}`},
+		"one string stays a JSON string":  {".items[0].metadata.name", `"a"`},
+		"one number stays a number":       {".items | length", `2`},
+		"one array stays an array":        {"[.items[].metadata.name]", `["a","b"]`},
+		"one boolean stays a boolean":     {".items | length > 1", `true`},
+		"an explicit null is a result":    {".missing", `null`},
+		"objects built by the filter":     {".items[] | {n: .metadata.name}", `[{"n":"a"},{"n":"b"}]`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, _ := newFakeToolServer(t, "cluster-1")
+			s.execer.(*fakeExecer).scriptedStdout = podListJSON
+			results, _ := readonlyResults(t, s, ReadonlyExecInput{
+				Clusters: []string{clusterOneTarget},
+				Args:     []string{"get", "pods", "-o", "json"},
+				JQ:       tc.jq,
+			})
+			if len(results) != 1 || results[0].Stdout != "" {
+				t.Fatalf("results = %+v, want one cluster with result and no stdout", results)
+			}
+			assertJSONEqual(t, results[0].Result, tc.want)
+		})
 	}
 }
 
@@ -632,8 +664,8 @@ func TestExecReadonlyJQCannotReadTheEnvironment(t *testing.T) {
 		JQ:       "env | tojson",
 	})
 	for _, r := range results {
-		if strings.Contains(r.Stdout, "leak-me") {
-			t.Fatalf("jq saw the daemon's environment: %q", r.Stdout)
+		if strings.Contains(r.Stdout, "leak-me") || strings.Contains(string(r.Result), "leak-me") {
+			t.Fatalf("jq saw the daemon's environment: stdout %q, result %s", r.Stdout, r.Result)
 		}
 	}
 }
@@ -681,9 +713,19 @@ func TestExecReadonlySaveOutputAppliesAfterJQ(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("results = %+v", results)
 	}
-	got, _ := os.ReadFile(results[0].StdoutFile)
-	if string(got) != "a\nb\n" {
-		t.Errorf("saved content = %q, want the jq-filtered output", got)
+	r := results[0]
+	if r.StdoutFile != "" || r.Stdout != "" || len(r.Result) != 0 {
+		t.Errorf("result = %+v, want the jq output saved under result_file only", r)
+	}
+	got, err := os.ReadFile(r.ResultFile)
+	if err != nil {
+		t.Fatalf("reading result_file: %v", err)
+	}
+	if want := "[\n  \"a\",\n  \"b\"\n]\n"; string(got) != want {
+		t.Errorf("saved content = %q, want the indented jq result %q", got, want)
+	}
+	if r.ResultBytes != len(got) {
+		t.Errorf("result_bytes = %d, want %d", r.ResultBytes, len(got))
 	}
 }
 
@@ -896,40 +938,45 @@ func TestExecReadonlyJQThatNeverFinishesIsStoppedAtTheDeadline(t *testing.T) {
 	if len(results) != 1 || !strings.Contains(results[0].Error, "jq") || !strings.Contains(results[0].Error, "deadline") {
 		t.Errorf("results = %+v, want a per-cluster jq timeout error", results)
 	}
-	if results[0].Stdout != "" {
-		t.Errorf("Stdout = %q, want nothing from a stopped expression", results[0].Stdout)
+	if results[0].Stdout != "" || len(results[0].Result) != 0 {
+		t.Errorf("stdout %q, result %s: want nothing from a stopped expression", results[0].Stdout, results[0].Result)
 	}
 }
 
-func TestAppendJQResultRefusesAResultThatWouldExceedTheCapWithoutWritingIt(t *testing.T) {
-	var out strings.Builder
-	out.WriteString(strings.Repeat("a", maxJQOutputBytes-10))
+func TestJQCollectorRefusesAnOutputThatWouldExceedTheCapWithoutKeepingIt(t *testing.T) {
+	c := &jqCollector{size: maxJQOutputBytes - 10}
 
-	if err := appendJQResult(&out, strings.Repeat("b", 100)); err == nil {
-		t.Fatal("appendJQResult accepted a string that pushes the output past the cap")
+	if err := c.add(strings.Repeat("b", 100)); err == nil {
+		t.Fatal("add accepted a string that pushes the output past the cap")
 	}
-	if out.Len() != maxJQOutputBytes-10 {
-		t.Errorf("output grew to %d bytes although the result was refused", out.Len())
+	if err := c.add(map[string]any{"k": strings.Repeat("c", 100)}); err == nil {
+		t.Fatal("add accepted a value that pushes the output past the cap")
 	}
-
-	// A structured value is bounded the same way.
-	if err := appendJQResult(&out, map[string]any{"k": strings.Repeat("c", 100)}); err == nil {
-		t.Fatal("appendJQResult accepted a value that pushes the output past the cap")
+	if len(c.raws) != 0 || c.size != maxJQOutputBytes-10 {
+		t.Errorf("refused outputs were kept: %d outputs, size %d", len(c.raws), c.size)
 	}
-	if out.Len() != maxJQOutputBytes-10 {
-		t.Errorf("output grew to %d bytes although the value was refused", out.Len())
+	if err := c.add(1); err != nil {
+		t.Errorf("a small output that still fits was refused: %v", err)
 	}
 }
 
-func TestAppendJQResultAppendsStringsRawAndValuesIndentedEachOnItsOwnLine(t *testing.T) {
-	var out strings.Builder
-	if err := appendJQResult(&out, "name"); err != nil {
+func TestJQCollectorResultIsNothingTheValueItselfOrAnArray(t *testing.T) {
+	none := &jqCollector{}
+	if got := none.result(); len(got) != 0 {
+		t.Errorf("no outputs: result = %s, want nothing", got)
+	}
+
+	one := &jqCollector{}
+	if err := one.add(map[string]any{"a": 1}); err != nil {
 		t.Fatal(err)
 	}
-	if err := appendJQResult(&out, map[string]any{"a": 1}); err != nil {
-		t.Fatal(err)
+	assertJSONEqual(t, one.result(), `{"a":1}`)
+
+	many := &jqCollector{}
+	for _, v := range []any{"x", 2, nil} {
+		if err := many.add(v); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if got, want := out.String(), "name\n{\n  \"a\": 1\n}\n"; got != want {
-		t.Errorf("output = %q, want %q", got, want)
-	}
+	assertJSONEqual(t, many.result(), `["x",2,null]`)
 }

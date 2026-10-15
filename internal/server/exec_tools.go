@@ -17,21 +17,28 @@ import (
 // clusterExecResult is one cluster's outcome. Every field but Cluster is
 // omitted when empty, and exit_code only appears when non-zero, matching
 // upstream kubernetes-mcp-server's convention of not emitting empty values.
+//
+// With a jq filter the filtered output is a JSON value, not text: it comes
+// back in Result (or, saved to a file, in ResultFile/ResultBytes), and the
+// raw kubectl output is not returned at all, so Stdout stays empty.
 type clusterExecResult struct {
-	Cluster     clusterID `json:"cluster"`
-	Stdout      string    `json:"stdout,omitempty"`
-	StdoutFile  string    `json:"stdout_file,omitempty"`
-	StdoutBytes int       `json:"stdout_bytes,omitempty"`
-	Stderr      string    `json:"stderr,omitempty"`
-	ExitCode    int       `json:"exit_code,omitempty"`
-	Error       string    `json:"error,omitempty"`
+	Cluster     clusterID       `json:"cluster"`
+	Stdout      string          `json:"stdout,omitempty"`
+	StdoutFile  string          `json:"stdout_file,omitempty"`
+	StdoutBytes int             `json:"stdout_bytes,omitempty"`
+	Result      json.RawMessage `json:"result,omitempty"`
+	ResultFile  string          `json:"result_file,omitempty"`
+	ResultBytes int             `json:"result_bytes,omitempty"`
+	Stderr      string          `json:"stderr,omitempty"`
+	ExitCode    int             `json:"exit_code,omitempty"`
+	Error       string          `json:"error,omitempty"`
 }
 
 // hasNothingToReport is true for a cluster that ran fine and produced no
 // stdout. Its stderr is deliberately ignored: on a successful exit with no
 // stdout it is noise like kubectl's "No resources found".
 func (r clusterExecResult) hasNothingToReport() bool {
-	return r.Error == "" && r.ExitCode == 0 && r.Stdout == "" && r.StdoutFile == ""
+	return r.Error == "" && r.ExitCode == 0 && r.Stdout == "" && r.StdoutFile == "" && len(r.Result) == 0 && r.ResultFile == ""
 }
 
 func clusterErrResult(id clusterID, err error) clusterExecResult {

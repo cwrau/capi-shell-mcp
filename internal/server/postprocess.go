@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -86,22 +87,53 @@ func (p *postProcessor) maxInputBytes() int {
 
 // apply filters and/or saves r.Stdout. It only touches successful results
 // with output; failures keep their raw stdout/stderr for diagnosis.
+//
+// With a jq filter the raw output is replaced by the filter's output as a
+// JSON value in r.Result, or, with save_output, by a file holding that value
+// (r.ResultFile). Without a filter the raw output stays in r.Stdout, or in
+// r.StdoutFile when it is saved.
 func (p *postProcessor) apply(ctx context.Context, r *clusterExecResult) {
 	if r.Error != "" || r.ExitCode != 0 || r.Stdout == "" {
 		return
 	}
 
 	if p.query != nil {
-		filtered, err := runJQ(ctx, p.query, r.Stdout)
+		result, err := runJQ(ctx, p.query, r.Stdout)
+		r.Stdout = ""
 		if err != nil {
-			r.Stdout = ""
 			r.Error = err.Error()
 			return
 		}
-		r.Stdout = filtered
+		if len(result) == 0 {
+			return // the filter produced nothing: nothing to report
+		}
+		if !p.save {
+			// The response is indented as a whole, so check what that makes
+			// of this value before it goes in.
+			if _, err := indentJSON(result, inlineResultDepth, maxJQOutputBytes); err != nil {
+				r.Error = err.Error()
+				return
+			}
+			r.Result = result
+			return
+		}
+		indented, err := indentJSON(result, 0, maxJQOutputBytes)
+		if err != nil {
+			r.Error = err.Error()
+			return
+		}
+		indented = append(indented, '\n')
+		path, err := saveOutput(p.dir, string(indented))
+		if err != nil {
+			r.Error = fmt.Sprintf("saving result: %v", err)
+			return
+		}
+		r.ResultFile = path
+		r.ResultBytes = len(indented)
+		return
 	}
 
-	if p.save && r.Stdout != "" {
+	if p.save {
 		path, err := saveOutput(p.dir, r.Stdout)
 		if err != nil {
 			r.Error = fmt.Sprintf("saving output: %v", err)
@@ -113,12 +145,13 @@ func (p *postProcessor) apply(ctx context.Context, r *clusterExecResult) {
 	}
 }
 
-// runJQ applies code to every JSON document in stdout. String results are
-// printed raw (like jq -r), everything else as indented JSON.
-func runJQ(ctx context.Context, code *gojq.Code, stdout string) (string, error) {
+// runJQ applies code to every JSON document in stdout and returns what it
+// produced as one JSON value (see jqCollector.result), nil when it produced
+// nothing.
+func runJQ(ctx context.Context, code *gojq.Code, stdout string) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, jqTimeout)
 	defer cancel()
-	var out strings.Builder
+	var out jqCollector
 	dec := json.NewDecoder(strings.NewReader(stdout))
 	for {
 		var doc any
@@ -126,7 +159,7 @@ func runJQ(ctx context.Context, code *gojq.Code, stdout string) (string, error) 
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return "", fmt.Errorf("jq: kubectl output is not JSON (pass -o json): %w", err)
+			return nil, fmt.Errorf("jq: kubectl output is not JSON (pass -o json): %w", err)
 		}
 
 		iter := code.RunWithContext(ctx, doc)
@@ -137,39 +170,147 @@ func runJQ(ctx context.Context, code *gojq.Code, stdout string) (string, error) 
 			}
 			if err, isErr := v.(error); isErr {
 				if errors.Is(err, context.DeadlineExceeded) {
-					return "", fmt.Errorf("jq: evaluation exceeded %s deadline; narrow the expression", jqTimeout)
+					return nil, fmt.Errorf("jq: evaluation exceeded %s deadline; narrow the expression", jqTimeout)
 				}
-				return "", fmt.Errorf("jq: %w", err)
+				return nil, fmt.Errorf("jq: %w", err)
 			}
-			if err := appendJQResult(&out, v); err != nil {
-				return "", err
+			if err := out.add(v); err != nil {
+				return nil, err
 			}
 		}
 	}
-	return out.String(), nil
+	return out.result(), nil
 }
 
-// appendJQResult renders one jq result onto out, one per line: strings raw,
-// everything else as indented JSON. It refuses a result that would take the
-// output past maxJQOutputBytes before writing it, so a single huge value
-// cannot get into the buffer first and only then trip the cap.
-func appendJQResult(out *strings.Builder, v any) error {
-	var rendered string
-	if s, isStr := v.(string); isStr {
-		rendered = s
-	} else {
-		b, err := json.MarshalIndent(v, "", "  ")
-		if err != nil {
-			return fmt.Errorf("jq: rendering result: %w", err)
-		}
-		rendered = string(b)
+// jqCollector gathers one cluster's jq outputs as JSON, within
+// maxJQOutputBytes. It refuses an output that would take it past the cap
+// before keeping it, so a single huge value cannot get into the buffer first
+// and only then trip the cap.
+type jqCollector struct {
+	raws []json.RawMessage
+	size int
+}
+
+func (c *jqCollector) add(v any) error {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false) // keep <, > and & readable in annotations and the like
+	if err := enc.Encode(v); err != nil {
+		return fmt.Errorf("jq: rendering result: %w", err)
 	}
-	if out.Len()+len(rendered)+1 > maxJQOutputBytes {
+	raw := bytes.TrimRight(buf.Bytes(), "\n")
+	if c.size+len(raw)+1 > maxJQOutputBytes {
 		return fmt.Errorf("jq: output exceeds %d bytes; narrow the expression", maxJQOutputBytes)
 	}
-	out.WriteString(rendered)
-	out.WriteByte('\n')
+	c.raws = append(c.raws, append(json.RawMessage(nil), raw...))
+	c.size += len(raw) + 1
 	return nil
+}
+
+// result is nothing when the filter produced no output, the value itself
+// when it produced exactly one, and an array of the values otherwise. A
+// filter that always wants an array can say so: [ ... ].
+func (c *jqCollector) result() json.RawMessage {
+	switch len(c.raws) {
+	case 0:
+		return nil
+	case 1:
+		return c.raws[0]
+	}
+	return json.RawMessage("[" + string(bytes.Join(rawSlices(c.raws), []byte(","))) + "]")
+}
+
+// inlineResultDepth is how deep an inline result sits in the response, which
+// is indented as an array of cluster objects: its lines start two levels in.
+const inlineResultDepth = 2
+
+// indentJSON pretty-prints src, which must be valid compact JSON as
+// jqCollector produces it, two spaces per level, starting baseDepth levels
+// in. It gives up with an error as soon as the output would pass limit bytes.
+//
+// The limit matters: nesting multiplies the size of an indented value, so a
+// small compact value can indent to many times the compact cap.
+// encoding/json's Indent builds all of that before a caller can look at its
+// size, so it cannot be used on a value that has not been bounded.
+func indentJSON(src []byte, baseDepth, limit int) ([]byte, error) {
+	out := make([]byte, 0, min(2*len(src), limit))
+	depth := baseDepth
+	inString, escaped := false, false
+	tooBig := func() error {
+		return fmt.Errorf("jq: output exceeds %d bytes once indented; narrow the expression or flatten its nesting", limit)
+	}
+	newline := func() error {
+		if len(out)+1+2*depth > limit {
+			return tooBig()
+		}
+		out = append(out, '\n')
+		for range depth {
+			out = append(out, ' ', ' ')
+		}
+		return nil
+	}
+	for i := 0; i < len(src); i++ {
+		c := src[i]
+		if inString {
+			out = append(out, c)
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == '"':
+				inString = false
+			}
+		} else {
+			switch c {
+			case '"':
+				inString = true
+				out = append(out, c)
+			case '{', '[':
+				closer := byte('}')
+				if c == '[' {
+					closer = ']'
+				}
+				out = append(out, c)
+				if i+1 < len(src) && src[i+1] == closer {
+					out = append(out, closer) // an empty container stays on one line
+					i++
+					break
+				}
+				depth++
+				if err := newline(); err != nil {
+					return nil, err
+				}
+			case '}', ']':
+				depth--
+				if err := newline(); err != nil {
+					return nil, err
+				}
+				out = append(out, c)
+			case ',':
+				out = append(out, c)
+				if err := newline(); err != nil {
+					return nil, err
+				}
+			case ':':
+				out = append(out, ':', ' ')
+			default:
+				out = append(out, c)
+			}
+		}
+		if len(out) > limit {
+			return nil, tooBig()
+		}
+	}
+	return out, nil
+}
+
+func rawSlices(raws []json.RawMessage) [][]byte {
+	out := make([][]byte, len(raws))
+	for i, r := range raws {
+		out[i] = r
+	}
+	return out
 }
 
 // ensurePrivateDir creates dir (0700) if needed and makes sure it is a real
