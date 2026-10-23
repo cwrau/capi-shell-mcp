@@ -6,7 +6,7 @@ import (
 	"sync"
 	"testing"
 
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	kmcpconfig "github.com/containers/kubernetes-mcp-server/pkg/config"
 )
 
 const fakeKubeconfig = `
@@ -75,14 +75,14 @@ func (r *fakeResolver) calls() int {
 }
 
 func TestCapiProviderIsAlwaysMultiTarget(t *testing.T) {
-	p := newCapiProvider(&fakeResolver{})
+	p := newCapiProvider(&fakeResolver{}, kmcpconfig.New())
 	if !p.IsMultiTarget() {
 		t.Error("IsMultiTarget() = false, want true")
 	}
 }
 
 func TestCapiProviderTargetParameterNameIsCluster(t *testing.T) {
-	p := newCapiProvider(&fakeResolver{})
+	p := newCapiProvider(&fakeResolver{}, kmcpconfig.New())
 	if p.GetTargetParameterName() != "cluster" {
 		t.Errorf("GetTargetParameterName() = %q, want %q", p.GetTargetParameterName(), "cluster")
 	}
@@ -90,7 +90,7 @@ func TestCapiProviderTargetParameterNameIsCluster(t *testing.T) {
 
 func TestCapiProviderGetTargetsDelegatesToResolver(t *testing.T) {
 	resolver := &fakeResolver{targets: []string{"prod/ctx-a/ns/c1", "prod/ctx-a/ns/c2"}}
-	p := newCapiProvider(resolver)
+	p := newCapiProvider(resolver, kmcpconfig.New())
 
 	got, err := p.GetTargets(context.Background())
 	if err != nil {
@@ -101,19 +101,48 @@ func TestCapiProviderGetTargetsDelegatesToResolver(t *testing.T) {
 	}
 }
 
-func TestCapiProviderFilteringDefaultsKeepAllToolsVisible(t *testing.T) {
-	p := newCapiProvider(&fakeResolver{})
-	if p.IsTargetCompatibilityToolFiltersEnabled() {
-		t.Error("IsTargetCompatibilityToolFiltersEnabled() = true, want false (no GVK discovery implemented)")
+func TestCapiProviderReloadConfigRejectsNil(t *testing.T) {
+	p := newCapiProvider(&fakeResolver{}, kmcpconfig.New())
+	if err := p.ReloadConfig(context.Background(), nil); err == nil {
+		t.Error("ReloadConfig(nil) = nil, want error")
 	}
-	if !p.AnyTargetHasGVKs(context.Background(), []schema.GroupVersionKind{{Kind: "Pod"}}) {
-		t.Error("AnyTargetHasGVKs() = false, want true (safe default keeps tools visible)")
+}
+
+func TestCapiProviderReloadedConfigIsUsedForNewManagersAndPublishedToExisting(t *testing.T) {
+	resolver := &fakeResolver{kubeconfigByID: map[string]string{
+		"prod/ctx-a/ns/c1": fakeKubeconfig,
+		"prod/ctx-a/ns/c2": fakeKubeconfig,
+	}}
+	p := newCapiProvider(resolver, kmcpconfig.New())
+	defer p.Close()
+
+	if _, err := p.GetDerivedKubernetes(context.Background(), "prod/ctx-a/ns/c1"); err != nil {
+		t.Fatalf("GetDerivedKubernetes c1: %v", err)
+	}
+
+	reloaded := kmcpconfig.New()
+	if err := p.ReloadConfig(context.Background(), reloaded); err != nil {
+		t.Fatalf("ReloadConfig: %v", err)
+	}
+	if _, err := p.GetDerivedKubernetes(context.Background(), "prod/ctx-a/ns/c2"); err != nil {
+		t.Fatalf("GetDerivedKubernetes c2: %v", err)
+	}
+	if got := p.managers["prod/ctx-a/ns/c2"].Config(); got != reloaded {
+		t.Error("manager built after ReloadConfig does not use the reloaded config")
+	}
+	if got := p.managers["prod/ctx-a/ns/c1"].Config(); got == reloaded {
+		t.Error("existing manager picked up the reloaded config before PublishKubernetesConfig")
+	}
+
+	p.PublishKubernetesConfig(reloaded)
+	if got := p.managers["prod/ctx-a/ns/c1"].Config(); got != reloaded {
+		t.Error("existing manager did not pick up the config after PublishKubernetesConfig")
 	}
 }
 
 func TestCapiProviderGetDerivedKubernetesBuildsAClientForAKnownTarget(t *testing.T) {
 	resolver := &fakeResolver{kubeconfigByID: map[string]string{"prod/ctx-a/ns/c1": fakeKubeconfig}}
-	p := newCapiProvider(resolver)
+	p := newCapiProvider(resolver, kmcpconfig.New())
 	defer p.Close()
 
 	k, err := p.GetDerivedKubernetes(context.Background(), "prod/ctx-a/ns/c1")
@@ -127,7 +156,7 @@ func TestCapiProviderGetDerivedKubernetesBuildsAClientForAKnownTarget(t *testing
 
 func TestCapiProviderGetDerivedKubernetesCachesManagerPerTarget(t *testing.T) {
 	resolver := &fakeResolver{kubeconfigByID: map[string]string{"prod/ctx-a/ns/c1": fakeKubeconfig}}
-	p := newCapiProvider(resolver)
+	p := newCapiProvider(resolver, kmcpconfig.New())
 	defer p.Close()
 
 	if _, err := p.GetDerivedKubernetes(context.Background(), "prod/ctx-a/ns/c1"); err != nil {
@@ -143,7 +172,7 @@ func TestCapiProviderGetDerivedKubernetesCachesManagerPerTarget(t *testing.T) {
 
 func TestCapiProviderGetDerivedKubernetesWrapsResolverErrorAsUnknownTarget(t *testing.T) {
 	resolver := &fakeResolver{err: errors.New("boom")}
-	p := newCapiProvider(resolver)
+	p := newCapiProvider(resolver, kmcpconfig.New())
 	defer p.Close()
 
 	_, err := p.GetDerivedKubernetes(context.Background(), "nope/ctx/ns/c1")
