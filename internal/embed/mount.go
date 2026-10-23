@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	kmcpapi "github.com/containers/kubernetes-mcp-server/pkg/api"
 	kmcpconfig "github.com/containers/kubernetes-mcp-server/pkg/config"
+	kmcpkube "github.com/containers/kubernetes-mcp-server/pkg/kubernetes"
 	kmcp "github.com/containers/kubernetes-mcp-server/pkg/mcp"
 	"github.com/containers/kubernetes-mcp-server/pkg/toolsets"
 	gosdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -20,17 +22,27 @@ import (
 // and the exact target string ready-made, so a second, less-detailed
 // listing tool would only add confusion.
 func MountTools(ctx context.Context, ourServer *gosdkmcp.Server, resolver TargetResolver) error {
-	provider := newCapiProvider(resolver)
+	cfg := kmcpconfig.New()
+	provider := newCapiProvider(resolver, cfg)
 
-	handle, err := kmcp.NewServer(ctx, kmcp.Configuration{StaticConfig: kmcpconfig.Default()}, provider)
+	handle, err := kmcp.NewServer(ctx, kmcp.Configuration{Config: cfg}, provider)
 	if err != nil {
 		return fmt.Errorf("embed: constructing kubernetes-mcp-server handle: %w", err)
 	}
 
 	mutate := kmcp.WithTargetParameter(provider.GetDefaultTarget(), provider.GetTargetParameterName(), provider.IsMultiTarget())
 
+	// Target-compatibility filtering stays off: we don't do live per-target
+	// GVK discovery, so tools stay visible regardless of which CRDs happen
+	// to be installed on any one target.
+	toolsetContext := kmcpapi.ToolsetContext{
+		Inspector:                         kmcpkube.NewClusterInspector(provider),
+		Config:                            cfg,
+		TargetCompatibilityFiltersEnabled: false,
+	}
+
 	for _, ts := range toolsets.Toolsets() {
-		for _, tool := range ts.GetTools(provider) {
+		for _, tool := range ts.GetTools(ctx, toolsetContext) {
 			if tool.IsTargetListProvider() {
 				continue
 			}

@@ -7,13 +7,12 @@ package embed
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
-	kmcpapi "github.com/containers/kubernetes-mcp-server/pkg/api"
 	kmcpconfig "github.com/containers/kubernetes-mcp-server/pkg/config"
 	kmcpkube "github.com/containers/kubernetes-mcp-server/pkg/kubernetes"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -44,13 +43,14 @@ type capiProvider struct {
 	resolver TargetResolver
 
 	mu       sync.Mutex
+	cfg      *kmcpconfig.Config
 	managers map[string]*kmcpkube.Manager
 }
 
 var _ kmcpkube.Provider = (*capiProvider)(nil)
 
-func newCapiProvider(resolver TargetResolver) *capiProvider {
-	return &capiProvider{resolver: resolver, managers: make(map[string]*kmcpkube.Manager)}
+func newCapiProvider(resolver TargetResolver, cfg *kmcpconfig.Config) *capiProvider {
+	return &capiProvider{resolver: resolver, cfg: cfg, managers: make(map[string]*kmcpkube.Manager)}
 }
 
 // --- api.TargetProvider ---
@@ -64,17 +64,6 @@ func (p *capiProvider) GetTargets(ctx context.Context) ([]string, error) {
 func (p *capiProvider) GetDefaultTarget() string { return "" }
 
 func (p *capiProvider) GetTargetParameterName() string { return targetParameterName }
-
-// --- api.FilteringProvider ---
-
-// IsTargetCompatibilityToolFiltersEnabled is false: we don't implement
-// live per-target GVK discovery, so tools stay visible regardless of
-// which CRDs happen to be installed on any one target.
-func (p *capiProvider) IsTargetCompatibilityToolFiltersEnabled() bool { return false }
-
-func (p *capiProvider) AnyTargetHasGVKs(context.Context, []schema.GroupVersionKind) bool {
-	return true
-}
 
 // --- kubernetes.Provider ---
 
@@ -109,7 +98,10 @@ func (p *capiProvider) managerForTarget(ctx context.Context, target string) (*km
 		return nil, fmt.Errorf("embed: building rest config for target %s: %w", target, err)
 	}
 
-	newMgr, err := kmcpkube.NewManager(ctx, kmcpconfig.Default(), restConfig, clientCmdConfig)
+	p.mu.Lock()
+	cfg := p.cfg
+	p.mu.Unlock()
+	newMgr, err := kmcpkube.NewManager(ctx, cfg, restConfig, clientCmdConfig)
 	if err != nil {
 		return nil, fmt.Errorf("embed: building manager for target %s: %w", target, err)
 	}
@@ -120,10 +112,28 @@ func (p *capiProvider) managerForTarget(ctx context.Context, target string) (*km
 	return newMgr, nil
 }
 
-func (p *capiProvider) WatchTargets(context.Context, kmcpkube.McpReload) {
+func (p *capiProvider) WatchTargets(context.Context, kmcpkube.McpReloader) {
 	// No live-watch: cluster-list changes are already picked up per-call
 	// via our own TTL cache, and config changes are handled by restarting
 	// the whole daemon, not a hot reload.
+}
+
+func (p *capiProvider) ReloadConfig(_ context.Context, cfg *kmcpconfig.Config) error {
+	if cfg == nil {
+		return errors.New("embed: config cannot be nil")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cfg = cfg
+	return nil
+}
+
+func (p *capiProvider) PublishKubernetesConfig(cfg *kmcpconfig.Config) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, mgr := range p.managers {
+		mgr.SetConfig(cfg)
+	}
 }
 
 func (p *capiProvider) Close() {
@@ -133,5 +143,3 @@ func (p *capiProvider) Close() {
 		mgr.Close()
 	}
 }
-
-var _ kmcpapi.FilteringProvider = (*capiProvider)(nil)
