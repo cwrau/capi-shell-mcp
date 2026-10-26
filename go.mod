@@ -3,7 +3,7 @@ module github.com/cwrau/capi-shell-mcp
 go 1.27.1
 
 require (
-	github.com/containers/kubernetes-mcp-server v0.0.68
+	github.com/containers/kubernetes-mcp-server v0.0.69
 	github.com/google/jsonschema-go v0.4.3
 	github.com/itchyny/gojq v0.12.19
 	github.com/modelcontextprotocol/go-sdk v1.8.0
