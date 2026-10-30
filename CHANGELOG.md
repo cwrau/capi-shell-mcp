@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.1.1](https://github.com/cwrau/capi-shell-mcp/compare/v2.1.0...v2.1.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **deps:** update kubernetes monorepo to v0.37.2 ([#40](https://github.com/cwrau/capi-shell-mcp/issues/40)) ([950d93b](https://github.com/cwrau/capi-shell-mcp/commit/950d93b0abbe6ad5d3e1c14b070bfca624df9556))
+* **deps:** update module github.com/containers/kubernetes-mcp-server to v0.0.69 ([#38](https://github.com/cwrau/capi-shell-mcp/issues/38)) ([553e41c](https://github.com/cwrau/capi-shell-mcp/commit/553e41c5048f0de831e755c9641cb37c96c87608))
+* **deps:** update module github.com/containers/kubernetes-mcp-server to v0.1.1 ([#41](https://github.com/cwrau/capi-shell-mcp/issues/41)) ([230fa7f](https://github.com/cwrau/capi-shell-mcp/commit/230fa7f6ac3f6f582c29d007c5ae98636bd1a6c6))
+
 ## [2.1.0](https://github.com/cwrau/capi-shell-mcp/compare/v2.0.0...v2.1.0) (2026-10-23)
 
 
