@@ -271,3 +271,33 @@ func TestCapiProviderInvalidateMakesTheNextCallResolveAgain(t *testing.T) {
 		t.Errorf("resolver called %d times, want 2 (once before Invalidate, once after)", got)
 	}
 }
+
+// invalidatingResolver invalidates the provider while a target is resolving,
+// the way a config reload landing mid-call does.
+type invalidatingResolver struct {
+	*fakeResolver
+	p *capiProvider
+}
+
+func (r *invalidatingResolver) ResolveTarget(ctx context.Context, target string) (string, error) {
+	r.p.Invalidate()
+	return r.fakeResolver.ResolveTarget(ctx, target)
+}
+
+func TestCapiProviderDoesNotKeepAManagerBuiltAcrossAnInvalidate(t *testing.T) {
+	base := &fakeResolver{kubeconfigByID: map[string]string{"prod/ctx-a/ns/c1": fakeKubeconfig}}
+	res := &invalidatingResolver{fakeResolver: base}
+	p := newCapiProvider(res, kmcpconfig.New(), false)
+	res.p = p
+	defer p.Close()
+
+	if _, err := p.GetDerivedKubernetes(context.Background(), "prod/ctx-a/ns/c1"); err != nil {
+		t.Fatalf("GetDerivedKubernetes: %v", err)
+	}
+	p.mu.Lock()
+	kept := len(p.managers)
+	p.mu.Unlock()
+	if kept != 0 {
+		t.Errorf("%d managers kept, want 0: one built from a kubeconfig resolved before the invalidate must not be cached", kept)
+	}
+}

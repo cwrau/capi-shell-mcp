@@ -89,11 +89,12 @@ func (s *ToolServer) resolveExecTarget(ctx context.Context, target string) (exec
 	}
 	id := clusterID{Kubeconfig: kubeconfigName, Context: contextName, Namespace: namespace, Name: name}
 
-	src, ok := s.config().Kubeconfigs[kubeconfigName]
+	snap := s.snapshot()
+	src, ok := snap.cfg.Kubeconfigs[kubeconfigName]
 	if !ok {
 		return execTarget{id: id}, fmt.Errorf("unknown kubeconfig: %s", kubeconfigName)
 	}
-	kc, err := s.cachedKubeconfig(ctx, src, contextName, namespace, name)
+	kc, err := s.cachedKubeconfig(ctx, snap, src, contextName, namespace, name)
 	if err != nil {
 		return execTarget{id: id}, err
 	}

@@ -41,7 +41,8 @@ func TestReloadSwitchesConfigAndEmptiesTheCaches(t *testing.T) {
 
 func TestFetchThatStraddlesAReloadIsNotCached(t *testing.T) {
 	s, _ := newFakeToolServer(t, "cluster-1")
-	src := s.config().Kubeconfigs["prod"]
+	snap := s.snapshot()
+	src := snap.cfg.Kubeconfigs["prod"]
 	inner := s.clientsForContext
 	s.clientsForContext = func(src config.KubeconfigSource, ctxName string) (*Clients, error) {
 		// The config is reloaded while this call is fetching with the old one.
@@ -49,7 +50,7 @@ func TestFetchThatStraddlesAReloadIsNotCached(t *testing.T) {
 		return inner(src, ctxName)
 	}
 
-	if _, err := s.listClustersCached(context.Background(), src, "ctx-a"); err != nil {
+	if _, err := s.listClustersCached(context.Background(), snap, src, "ctx-a"); err != nil {
 		t.Fatalf("listClustersCached: %v", err)
 	}
 	if _, ok := s.store.ClusterList.Get(capi.ClusterListKey("prod", "ctx-a")); ok {

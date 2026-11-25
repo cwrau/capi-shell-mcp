@@ -52,6 +52,22 @@ func NewToolServer(cfg *config.AppConfig, store *capi.Store, proxyMgr *proxy.Man
 // should take it once, so a concurrent Reload cannot give it a mix.
 func (s *ToolServer) config() *config.AppConfig { return s.cfg.Load() }
 
+// snapshot is a configuration together with the cache generation it was
+// read under. A call that looks things up in the config and caches what it
+// fetches takes one at its start and uses it throughout: the generation is
+// read first, so if a Reload lands in between, the config is the new one and
+// the generation the old one, and the cache write is skipped (never the
+// other way round, an old config cached under the new generation).
+type snapshot struct {
+	cfg *config.AppConfig
+	gen uint64
+}
+
+func (s *ToolServer) snapshot() snapshot {
+	gen := s.store.Generation()
+	return snapshot{cfg: s.config(), gen: gen}
+}
+
 // Reload switches to cfg for every call that starts from now on; calls
 // already running finish on the configuration they began with. The caches
 // are emptied, since what they hold came from the old configuration.
@@ -73,8 +89,8 @@ type resolvedCluster struct {
 // sortedKubeconfigs returns the configured kubeconfig entries ordered by
 // name, for deterministic iteration (Go maps have no order; the TS
 // implementation relied on JS object insertion order instead).
-func (s *ToolServer) sortedKubeconfigs() []config.KubeconfigSource {
-	kubeconfigs := s.config().Kubeconfigs
+func sortedKubeconfigs(cfg *config.AppConfig) []config.KubeconfigSource {
+	kubeconfigs := cfg.Kubeconfigs
 	names := make([]string, 0, len(kubeconfigs))
 	for name := range kubeconfigs {
 		names = append(names, name)

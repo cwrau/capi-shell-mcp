@@ -46,11 +46,12 @@ func (s *ToolServer) ResolveTarget(ctx context.Context, target string) (string, 
 	if err != nil {
 		return "", err
 	}
-	src, ok := s.config().Kubeconfigs[kubeconfigName]
+	snap := s.snapshot()
+	src, ok := snap.cfg.Kubeconfigs[kubeconfigName]
 	if !ok {
 		return "", fmt.Errorf("unknown kubeconfig: %s", kubeconfigName)
 	}
-	return s.cachedKubeconfig(ctx, src, contextName, namespace, name)
+	return s.cachedKubeconfig(ctx, snap, src, contextName, namespace, name)
 }
 
 // ResolveTargetReadonly is ResolveTarget, but returns a freshly built

@@ -14,14 +14,15 @@ import (
 // to select clusters (the "clusters" pattern language), used uniformly
 // everywhere.
 func (s *ToolServer) allResolvedClusters(ctx context.Context) ([]resolvedCluster, error) {
+	snap := s.snapshot()
 	var result []resolvedCluster
-	for _, src := range s.sortedKubeconfigs() {
+	for _, src := range sortedKubeconfigs(snap.cfg) {
 		contexts, err := s.resolveContexts(src)
 		if err != nil {
 			return nil, err
 		}
 		for _, contextName := range contexts {
-			clusters, err := s.listClustersCached(ctx, src, contextName)
+			clusters, err := s.listClustersCached(ctx, snap, src, contextName)
 			if err != nil {
 				return nil, err
 			}
@@ -33,21 +34,19 @@ func (s *ToolServer) allResolvedClusters(ctx context.Context) ([]resolvedCluster
 	return result, nil
 }
 
-func (s *ToolServer) listClustersCached(ctx context.Context, src config.KubeconfigSource, contextName string) ([]capi.CAPICluster, error) {
+func (s *ToolServer) listClustersCached(ctx context.Context, snap snapshot, src config.KubeconfigSource, contextName string) ([]capi.CAPICluster, error) {
 	key := capi.ClusterListKey(src.Name, contextName)
 	if cached, ok := s.store.ClusterList.Get(key); ok {
 		return cached, nil
 	}
-	gen := s.store.Generation()
-	cfg := s.config()
 	clients, err := s.clientsForContext(src, contextName)
 	if err != nil {
 		return nil, err
 	}
-	clusters, err := capi.ListClustersForContext(ctx, clients.Dynamic, src.Name, contextName, cfg.CustomFields)
+	clusters, err := capi.ListClustersForContext(ctx, clients.Dynamic, src.Name, contextName, snap.cfg.CustomFields)
 	if err != nil {
 		return nil, err
 	}
-	s.store.IfGeneration(gen, func() { s.store.ClusterList.Set(key, clusters) })
+	s.store.IfGeneration(snap.gen, func() { s.store.ClusterList.Set(key, clusters) })
 	return clusters, nil
 }

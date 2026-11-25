@@ -20,9 +20,8 @@ func (s *ToolServer) kubeconfigTTL() time.Duration {
 // knows whether to refresh an existing tunnel's TTL; on a cache miss, the
 // (comparatively expensive) API-server-restriction check is only made at
 // all if an sshuttleHost is configured.
-func (s *ToolServer) cachedKubeconfig(ctx context.Context, src config.KubeconfigSource, contextName, namespace, clusterName string) (string, error) {
-	gen := s.store.Generation()
-	cfg := s.config()
+func (s *ToolServer) cachedKubeconfig(ctx context.Context, snap snapshot, src config.KubeconfigSource, contextName, namespace, clusterName string) (string, error) {
+	gen, cfg := snap.gen, snap.cfg
 	sshuttleHost := src.SshuttleHost
 	if sshuttleHost == "" {
 		sshuttleHost = cfg.SshuttleHost

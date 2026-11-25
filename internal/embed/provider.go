@@ -57,6 +57,7 @@ type capiProvider struct {
 	mu       sync.Mutex
 	cfg      *kmcpconfig.Config
 	managers map[string]managerEntry
+	gen      uint64 // bumped by Invalidate
 }
 
 type managerEntry struct {
@@ -95,6 +96,7 @@ func (p *capiProvider) GetDerivedKubernetes(ctx context.Context, target string) 
 func (p *capiProvider) managerForTarget(ctx context.Context, target string) (*kmcpkube.Manager, error) {
 	p.mu.Lock()
 	entry, ok := p.managers[target]
+	gen := p.gen
 	p.mu.Unlock()
 	if ok && (entry.expires.IsZero() || time.Now().Before(entry.expires)) {
 		return entry.mgr, nil
@@ -134,6 +136,13 @@ func (p *capiProvider) managerForTarget(ctx context.Context, target string) (*km
 		}
 	}
 	p.mu.Lock()
+	if p.gen != gen {
+		// Invalidated while this manager was being built from the old
+		// configuration: serve this one call with it, but do not keep it.
+		p.mu.Unlock()
+		time.AfterFunc(p.resolver.ReadonlyTTL()/4, newMgr.Close)
+		return newMgr, nil
+	}
 	p.managers[target] = fresh
 	p.mu.Unlock()
 	if ok {
@@ -152,6 +161,7 @@ func (p *capiProvider) Invalidate() {
 	p.mu.Lock()
 	old := p.managers
 	p.managers = make(map[string]managerEntry)
+	p.gen++
 	p.mu.Unlock()
 	for _, e := range old {
 		time.AfterFunc(p.resolver.ReadonlyTTL()/4, e.mgr.Close)
