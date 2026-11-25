@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.2](https://github.com/cwrau/capi-shell-mcp/compare/v3.0.1...v3.0.2) (2026-11-25)
+
+
+### Bug Fixes
+
+* build and reset monitoring configs under one lock ([f7f4023](https://github.com/cwrau/capi-shell-mcp/commit/f7f4023e36d9d12ea7ff84ea89a4931392e3f307))
+
 ## [3.0.1](https://github.com/cwrau/capi-shell-mcp/compare/v3.0.0...v3.0.1) (2026-11-25)
 
 
