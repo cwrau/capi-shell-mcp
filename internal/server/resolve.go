@@ -38,14 +38,16 @@ func (s *ToolServer) listClustersCached(ctx context.Context, src config.Kubeconf
 	if cached, ok := s.store.ClusterList.Get(key); ok {
 		return cached, nil
 	}
+	gen := s.store.Generation()
+	cfg := s.config()
 	clients, err := s.clientsForContext(src, contextName)
 	if err != nil {
 		return nil, err
 	}
-	clusters, err := capi.ListClustersForContext(ctx, clients.Dynamic, src.Name, contextName, s.cfg.CustomFields)
+	clusters, err := capi.ListClustersForContext(ctx, clients.Dynamic, src.Name, contextName, cfg.CustomFields)
 	if err != nil {
 		return nil, err
 	}
-	s.store.ClusterList.Set(key, clusters)
+	s.store.IfGeneration(gen, func() { s.store.ClusterList.Set(key, clusters) })
 	return clusters, nil
 }

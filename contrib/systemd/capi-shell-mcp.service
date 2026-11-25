@@ -2,7 +2,9 @@
 Description=capi-shell-mcp persistent MCP daemon
 
 [Service]
-Type=notify
+# notify-reload: a reload sends SIGHUP to the daemon, which re-reads its
+# config in place and reports back (RELOADING=1, then READY=1).
+Type=notify-reload
 NotifyAccess=all
 ExecStart=capi-shell-mcp
 Restart=on-failure

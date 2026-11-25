@@ -252,3 +252,22 @@ func TestCapiProviderReadonlyRebuildsManagerAfterHalfTheTokenLifetime(t *testing
 		t.Errorf("ResolveTargetReadonly called %d times after expiry, want 2 (token re-minted)", resolver.readonlyCallCount())
 	}
 }
+
+func TestCapiProviderInvalidateMakesTheNextCallResolveAgain(t *testing.T) {
+	resolver := &fakeResolver{kubeconfigByID: map[string]string{"prod/ctx-a/ns/c1": fakeKubeconfig}}
+	p := newCapiProvider(resolver, kmcpconfig.New(), false)
+	defer p.Close()
+
+	for i := 0; i < 2; i++ {
+		if _, err := p.GetDerivedKubernetes(context.Background(), "prod/ctx-a/ns/c1"); err != nil {
+			t.Fatalf("GetDerivedKubernetes: %v", err)
+		}
+	}
+	p.Invalidate()
+	if _, err := p.GetDerivedKubernetes(context.Background(), "prod/ctx-a/ns/c1"); err != nil {
+		t.Fatalf("GetDerivedKubernetes after Invalidate: %v", err)
+	}
+	if got := resolver.calls(); got != 2 {
+		t.Errorf("resolver called %d times, want 2 (once before Invalidate, once after)", got)
+	}
+}

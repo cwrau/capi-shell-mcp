@@ -1,6 +1,8 @@
 [Unit]
-Description=Restart capi-shell-mcp after a config change
+Description=Reload capi-shell-mcp after a config change
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/systemctl --user restart capi-shell-mcp.service
+# reload-or-restart: a running daemon reloads in place (no dropped sessions);
+# a stopped one is started.
+ExecStart=/usr/bin/systemctl --user reload-or-restart capi-shell-mcp.service

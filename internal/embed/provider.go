@@ -144,10 +144,24 @@ func (p *capiProvider) managerForTarget(ctx context.Context, target string) (*km
 	return newMgr, nil
 }
 
+// Invalidate drops every cached manager so the next call per target builds a
+// new one from a freshly resolved kubeconfig: after a config reload the old
+// managers carry the old config's kubeconfig and read-only role. Calls
+// already running on an old manager finish before it is closed.
+func (p *capiProvider) Invalidate() {
+	p.mu.Lock()
+	old := p.managers
+	p.managers = make(map[string]managerEntry)
+	p.mu.Unlock()
+	for _, e := range old {
+		time.AfterFunc(p.resolver.ReadonlyTTL()/4, e.mgr.Close)
+	}
+}
+
 func (p *capiProvider) WatchTargets(context.Context, kmcpkube.McpReloader) {
 	// No live-watch: cluster-list changes are already picked up per-call
-	// via our own TTL cache, and config changes are handled by restarting
-	// the whole daemon, not a hot reload.
+	// via our own TTL cache, and a change to the daemon's config (SIGHUP)
+	// goes through ToolServer.Reload plus Invalidate (see MountTools).
 }
 
 func (p *capiProvider) ReloadConfig(_ context.Context, cfg *kmcpconfig.Config) error {

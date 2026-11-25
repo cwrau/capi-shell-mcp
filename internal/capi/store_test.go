@@ -36,3 +36,23 @@ func TestStoreKubeconfigCacheRoundTripsWithAndWithoutProxyTarget(t *testing.T) {
 		t.Fatalf("got %+v, ok=%v", got2, ok)
 	}
 }
+
+func TestStoreIfGenerationSkipsWritesFromBeforeAReset(t *testing.T) {
+	s := NewStore(time.Minute, time.Minute)
+
+	gen := s.Generation()
+	if !s.IfGeneration(gen, func() { s.ClusterList.Set("a", nil) }) {
+		t.Fatal("write in the current generation was skipped")
+	}
+
+	s.Reset(time.Minute, time.Minute)
+	if s.IfGeneration(gen, func() { s.ClusterList.Set("b", nil) }) {
+		t.Error("write from before the reset ran")
+	}
+	if _, ok := s.ClusterList.Get("b"); ok {
+		t.Error("stale entry was cached")
+	}
+	if !s.IfGeneration(s.Generation(), func() {}) {
+		t.Error("write in the new generation was skipped")
+	}
+}

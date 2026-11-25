@@ -78,3 +78,21 @@ func TestSetOverwritesExistingEntryAndResetsTTL(t *testing.T) {
 		t.Fatalf("got (%q, %v), want (\"new\", true)", v, ok)
 	}
 }
+
+func TestSetTTLAppliesToLaterSetsOnly(t *testing.T) {
+	now := time.Unix(0, 0)
+	c := New[string, string](60 * time.Second)
+	c.now = func() time.Time { return now }
+
+	c.Set("before", "v")
+	c.SetTTL(10 * time.Second)
+	c.Set("after", "v")
+	now = now.Add(30 * time.Second)
+
+	if _, ok := c.Get("before"); !ok {
+		t.Error("entry set before SetTTL expired early, it should keep its 60s TTL")
+	}
+	if _, ok := c.Get("after"); ok {
+		t.Error("entry set after SetTTL(10s) is still there after 30s")
+	}
+}

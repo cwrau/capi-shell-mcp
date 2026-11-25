@@ -32,7 +32,7 @@ func TestReadOnlyKubeconfigGeneratesTheRoleFromTheConfiguredDenyList(t *testing.
 	} {
 		t.Run(name, func(t *testing.T) {
 			s, fc := newFakeToolServer(t, "c1")
-			s.cfg.ReadOnly.DeniedResources = tc.denied
+			s.config().ReadOnly.DeniedResources = tc.denied
 			if _, err := s.readOnlyKubeconfig(context.Background(), roTestAdminKubeconfig); err != nil {
 				t.Fatalf("readOnlyKubeconfig: %v", err)
 			}

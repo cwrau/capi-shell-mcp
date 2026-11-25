@@ -46,7 +46,7 @@ func (s *ToolServer) ResolveTarget(ctx context.Context, target string) (string, 
 	if err != nil {
 		return "", err
 	}
-	src, ok := s.cfg.Kubeconfigs[kubeconfigName]
+	src, ok := s.config().Kubeconfigs[kubeconfigName]
 	if !ok {
 		return "", fmt.Errorf("unknown kubeconfig: %s", kubeconfigName)
 	}

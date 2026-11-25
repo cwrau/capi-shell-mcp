@@ -69,3 +69,18 @@ func (s *Server) Close(ctx context.Context) error {
 	notifySystemd(s.execer, "--stopping", "--status=shutting down")
 	return err
 }
+
+// Reload runs apply while telling systemd a reload is under way (the
+// Type=notify-reload protocol: RELOADING=1, then READY=1 once done), and
+// returns what apply returned. Either way the server keeps serving, so a
+// failed apply only shows in the unit's status and the returned error.
+func (s *Server) Reload(mcpServer *mcp.Server, apply func() error) error {
+	notifySystemd(s.execer, "--reloading", "--status=reloading config")
+	err := apply()
+	status := fmt.Sprintf("listening on %s, sessions=%d", s.Addr(), sessionCount(mcpServer))
+	if err != nil {
+		status = fmt.Sprintf("config reload failed, running on the previous config: %v; %s", err, status)
+	}
+	notifySystemd(s.execer, "--ready", "--status="+status)
+	return err
+}

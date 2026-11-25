@@ -6,6 +6,8 @@ package server
 import (
 	"os"
 	"sort"
+	"sync/atomic"
+	"time"
 
 	"github.com/cwrau/capi-shell-mcp/internal/capi"
 	"github.com/cwrau/capi-shell-mcp/internal/config"
@@ -19,7 +21,8 @@ import (
 // process-lifetime caches, the sshuttle proxy manager, and the seams for
 // building Kubernetes clients / running commands.
 type ToolServer struct {
-	cfg               *config.AppConfig
+	// cfg is swapped as a whole by Reload; read it through config().
+	cfg               atomic.Pointer[config.AppConfig]
 	store             *capi.Store
 	proxyMgr          *proxy.Manager
 	execer            shell.Execer
@@ -34,14 +37,30 @@ type ToolServer struct {
 }
 
 func NewToolServer(cfg *config.AppConfig, store *capi.Store, proxyMgr *proxy.Manager, execer shell.Execer, clientsForContext ClientsForContextFunc) *ToolServer {
-	return &ToolServer{
-		cfg:                       cfg,
+	s := &ToolServer{
 		store:                     store,
 		proxyMgr:                  proxyMgr,
 		execer:                    execer,
 		clientsForContext:         clientsForContext,
 		clientsFromReadonlySource: ClientsFromKubeconfigYAML,
 	}
+	s.cfg.Store(cfg)
+	return s
+}
+
+// config is the configuration in effect. A call that reads several settings
+// should take it once, so a concurrent Reload cannot give it a mix.
+func (s *ToolServer) config() *config.AppConfig { return s.cfg.Load() }
+
+// Reload switches to cfg for every call that starts from now on; calls
+// already running finish on the configuration they began with. The caches
+// are emptied, since what they hold came from the old configuration.
+func (s *ToolServer) Reload(cfg *config.AppConfig) {
+	s.cfg.Store(cfg)
+	s.store.Reset(
+		time.Duration(cfg.Cache.ClusterListTTLSeconds)*time.Second,
+		time.Duration(cfg.Cache.KubeconfigTTLSeconds)*time.Second,
+	)
 }
 
 // resolvedCluster pairs a discovered CAPI cluster with the kubeconfig
@@ -55,14 +74,15 @@ type resolvedCluster struct {
 // name, for deterministic iteration (Go maps have no order; the TS
 // implementation relied on JS object insertion order instead).
 func (s *ToolServer) sortedKubeconfigs() []config.KubeconfigSource {
-	names := make([]string, 0, len(s.cfg.Kubeconfigs))
-	for name := range s.cfg.Kubeconfigs {
+	kubeconfigs := s.config().Kubeconfigs
+	names := make([]string, 0, len(kubeconfigs))
+	for name := range kubeconfigs {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	out := make([]config.KubeconfigSource, len(names))
 	for i, name := range names {
-		out[i] = s.cfg.Kubeconfigs[name]
+		out[i] = kubeconfigs[name]
 	}
 	return out
 }

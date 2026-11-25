@@ -11,7 +11,7 @@ import (
 
 func TestMountToolsRegistersManyToolsWithTheClustersParameter(t *testing.T) {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v0.0.1"}, nil)
-	if err := MountTools(context.Background(), srv, &fakeResolver{}); err != nil {
+	if _, err := MountTools(context.Background(), srv, &fakeResolver{}); err != nil {
 		t.Fatalf("MountTools: %v", err)
 	}
 
@@ -73,7 +73,7 @@ func TestMountToolsRegistersManyToolsWithTheClustersParameter(t *testing.T) {
 func TestMountToolsCallReturnsCleanErrorForUnknownTarget(t *testing.T) {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v0.0.1"}, nil)
 	resolver := &fakeResolver{err: errors.New("no such cluster")}
-	if err := MountTools(context.Background(), srv, resolver); err != nil {
+	if _, err := MountTools(context.Background(), srv, resolver); err != nil {
 		t.Fatalf("MountTools: %v", err)
 	}
 
@@ -150,7 +150,7 @@ func TestMountToolsRoutesReadOnlyToolsToReadonlyCredentials(t *testing.T) {
 		t.Run(tt.tool, func(t *testing.T) {
 			resolver := &fakeResolver{err: errors.New("stop here")}
 			srv := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v0.0.1"}, nil)
-			if err := MountTools(context.Background(), srv, resolver); err != nil {
+			if _, err := MountTools(context.Background(), srv, resolver); err != nil {
 				t.Fatalf("MountTools: %v", err)
 			}
 			// Mounting builds every toolset, and some of them ask the cluster

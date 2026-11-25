@@ -73,3 +73,12 @@ func (c *TTLCache[K, V]) Clear() {
 
 	c.store = make(map[K]entry[V])
 }
+
+// SetTTL changes how long entries Set from now on live. Entries already in
+// the cache keep the expiry they were given.
+func (c *TTLCache[K, V]) SetTTL(ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.ttl = ttl
+}

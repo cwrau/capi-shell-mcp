@@ -50,7 +50,8 @@ func run() error {
 	toolServer := server.NewToolServer(cfg, store, proxyMgr, execer, server.RealClientsForContext)
 	mcpServer := server.BuildServer(toolServer)
 
-	if err := embed.MountTools(context.Background(), mcpServer, toolServer); err != nil {
+	invalidateEmbedded, err := embed.MountTools(context.Background(), mcpServer, toolServer)
+	if err != nil {
 		return fmt.Errorf("mounting kubernetes-mcp-server tools: %w", err)
 	}
 
@@ -69,8 +70,27 @@ func run() error {
 	}
 
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
-	<-sig
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	for s := range sig {
+		if s != syscall.SIGHUP {
+			break
+		}
+		// A config that fails to load keeps the running one.
+		err := httpSrv.Reload(mcpServer, func() error {
+			newCfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+			toolServer.Reload(newCfg)
+			invalidateEmbedded() // after, so the new clients are built on the new config
+			return nil
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "reloading config: %v\n", err)
+		} else {
+			fmt.Fprintln(os.Stderr, "config reloaded")
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

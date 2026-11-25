@@ -9,7 +9,7 @@ import (
 )
 
 func (s *ToolServer) kubeconfigTTL() time.Duration {
-	return time.Duration(s.cfg.Cache.KubeconfigTTLSeconds) * time.Second
+	return time.Duration(s.config().Cache.KubeconfigTTLSeconds) * time.Second
 }
 
 // cachedKubeconfig fetches (or returns the cached copy of) the admin
@@ -21,11 +21,13 @@ func (s *ToolServer) kubeconfigTTL() time.Duration {
 // (comparatively expensive) API-server-restriction check is only made at
 // all if an sshuttleHost is configured.
 func (s *ToolServer) cachedKubeconfig(ctx context.Context, src config.KubeconfigSource, contextName, namespace, clusterName string) (string, error) {
+	gen := s.store.Generation()
+	cfg := s.config()
 	sshuttleHost := src.SshuttleHost
 	if sshuttleHost == "" {
-		sshuttleHost = s.cfg.SshuttleHost
+		sshuttleHost = cfg.SshuttleHost
 	}
-	ttl := s.kubeconfigTTL()
+	ttl := time.Duration(cfg.Cache.KubeconfigTTLSeconds) * time.Second
 	key := capi.KubeconfigKey(src.Name, contextName, namespace, clusterName)
 
 	if cached, ok := s.store.Kubeconfig.Get(key); ok {
@@ -46,8 +48,8 @@ func (s *ToolServer) cachedKubeconfig(ctx context.Context, src config.Kubeconfig
 	if err != nil {
 		return "", err
 	}
-	if s.cfg.Transforms != nil {
-		kc, err = capi.ApplyKubeconfigTransform(kc, *s.cfg.Transforms)
+	if transforms := cfg.Transforms; transforms != nil {
+		kc, err = capi.ApplyKubeconfigTransform(kc, *transforms)
 		if err != nil {
 			return "", err
 		}
@@ -67,7 +69,9 @@ func (s *ToolServer) cachedKubeconfig(ctx context.Context, src config.Kubeconfig
 		}
 	}
 
-	s.store.Kubeconfig.Set(key, capi.CachedKubeconfig{Kubeconfig: kc, ProxyTarget: proxyTarget})
+	s.store.IfGeneration(gen, func() {
+		s.store.Kubeconfig.Set(key, capi.CachedKubeconfig{Kubeconfig: kc, ProxyTarget: proxyTarget})
+	})
 	return kc, nil
 }
 
@@ -80,5 +84,5 @@ func (s *ToolServer) readOnlyKubeconfig(ctx context.Context, adminKC string) (st
 	if err != nil {
 		return "", err
 	}
-	return capi.ReadOnlyKubeconfig(ctx, core, rbac, lister, s.cfg.ReadOnly.DeniedResources, adminKC)
+	return capi.ReadOnlyKubeconfig(ctx, core, rbac, lister, s.config().ReadOnly.DeniedResources, adminKC)
 }

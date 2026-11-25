@@ -27,7 +27,10 @@ import (
 // covers the same information, with more detail (namespace, custom_fields)
 // and the exact target string ready-made, so a second, less-detailed
 // listing tool would only add confusion.
-func MountTools(ctx context.Context, ourServer *gosdkmcp.Server, resolver TargetResolver) error {
+//
+// The returned invalidate drops the clients the tools have cached per
+// cluster; call it after the resolver's configuration changed.
+func MountTools(ctx context.Context, ourServer *gosdkmcp.Server, resolver TargetResolver) (invalidate func(), err error) {
 	cfg := kmcpconfig.New()
 	provider := newCapiProvider(resolver, cfg, false)
 	readonlyProvider := newCapiProvider(resolver, cfg, true)
@@ -35,11 +38,11 @@ func MountTools(ctx context.Context, ourServer *gosdkmcp.Server, resolver Target
 	configuration := kmcp.Configuration{Config: cfg}
 	adminHandle, err := kmcp.NewServer(ctx, configuration, provider)
 	if err != nil {
-		return fmt.Errorf("embed: constructing kubernetes-mcp-server handle: %w", err)
+		return nil, fmt.Errorf("embed: constructing kubernetes-mcp-server handle: %w", err)
 	}
 	readonlyHandle, err := kmcp.NewServer(ctx, configuration, readonlyProvider)
 	if err != nil {
-		return fmt.Errorf("embed: constructing read-only kubernetes-mcp-server handle: %w", err)
+		return nil, fmt.Errorf("embed: constructing read-only kubernetes-mcp-server handle: %w", err)
 	}
 
 	mutate := kmcp.WithTargetParameter(provider.GetDefaultTarget(), provider.GetTargetParameterName(), provider.IsMultiTarget())
@@ -66,7 +69,7 @@ func MountTools(ctx context.Context, ourServer *gosdkmcp.Server, resolver Target
 			}
 			goTool, handler, err := kmcp.ServerToolToGoSdkTool(handle, mutated)
 			if err != nil {
-				return fmt.Errorf("embed: converting tool %q: %w", mutated.Tool.Name, err)
+				return nil, fmt.Errorf("embed: converting tool %q: %w", mutated.Tool.Name, err)
 			}
 			if mutated.IsClusterAware() {
 				goTool, handler = wrapFanOut(goTool, handler, resolver, readOnly)
@@ -74,5 +77,8 @@ func MountTools(ctx context.Context, ourServer *gosdkmcp.Server, resolver Target
 			ourServer.AddTool(goTool, handler)
 		}
 	}
-	return nil
+	return func() {
+		provider.Invalidate()
+		readonlyProvider.Invalidate()
+	}, nil
 }
