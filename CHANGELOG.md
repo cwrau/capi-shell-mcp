@@ -1,5 +1,37 @@
 # Changelog
 
+## [3.0.0](https://github.com/cwrau/capi-shell-mcp/compare/v2.1.0...v3.0.0) (2026-11-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* return jq output as a JSON value in result instead of text in stdout
+* impersonate the read-only ServiceAccount instead of minting tokens
+* kubectl-only exec_in_cluster_readonly with a generated, configurable read-only role
+
+### Features
+
+* add a read-only loopback proxy to the monitoring services of a cluster ([59049c8](https://github.com/cwrau/capi-shell-mcp/commit/59049c8de0a44cb79c397d90235c44157da2a60c))
+* add ignore_errors to the exec tools ([6f2363a](https://github.com/cwrau/capi-shell-mcp/commit/6f2363aae371b3a22a0d55ff2caf197570b08d1b))
+* impersonate the read-only ServiceAccount instead of minting tokens ([c370e9d](https://github.com/cwrau/capi-shell-mcp/commit/c370e9d1e2a4a132e2c8f10a1fa3192cb768cbbc))
+* kubectl-only exec_in_cluster_readonly with a generated, configurable read-only role ([e8f89b5](https://github.com/cwrau/capi-shell-mcp/commit/e8f89b573cd0a3a319bfe1e3734c87853dfb7bd0))
+* reload config on SIGHUP and wire it through the systemd units ([441b8b5](https://github.com/cwrau/capi-shell-mcp/commit/441b8b5efd7859fd1afef644054b088282a909ab))
+* return jq output as a JSON value in result instead of text in stdout ([b9446a7](https://github.com/cwrau/capi-shell-mcp/commit/b9446a76bcc65e727f8ac35e36bb1f249460a970))
+* run read-only tools that need withheld subresources with admin credentials ([a13506c](https://github.com/cwrau/capi-shell-mcp/commit/a13506c4b207969346942c2ed0b29f8605d99845))
+* serve the metrics, alerts, logs and traces tools per cluster ([02f1301](https://github.com/cwrau/capi-shell-mcp/commit/02f1301c555b1b3a18046ffcf466899e598c8d82))
+
+
+### Bug Fixes
+
+* **deps:** update kubernetes monorepo to v0.37.2 ([#40](https://github.com/cwrau/capi-shell-mcp/issues/40)) ([950d93b](https://github.com/cwrau/capi-shell-mcp/commit/950d93b0abbe6ad5d3e1c14b070bfca624df9556))
+* **deps:** update module github.com/containers/kubernetes-mcp-server to v0.0.69 ([#38](https://github.com/cwrau/capi-shell-mcp/issues/38)) ([553e41c](https://github.com/cwrau/capi-shell-mcp/commit/553e41c5048f0de831e755c9641cb37c96c87608))
+* **deps:** update module github.com/containers/kubernetes-mcp-server to v0.1.1 ([#41](https://github.com/cwrau/capi-shell-mcp/issues/41)) ([230fa7f](https://github.com/cwrau/capi-shell-mcp/commit/230fa7f6ac3f6f582c29d007c5ae98636bd1a6c6))
+* **deps:** update module github.com/containers/kubernetes-mcp-server to v0.1.2 ([#42](https://github.com/cwrau/capi-shell-mcp/issues/42)) ([e210a41](https://github.com/cwrau/capi-shell-mcp/commit/e210a415ab8bd6cf92581ea68899da5f12b4dd15))
+* **deps:** update module github.com/containers/kubernetes-mcp-server to v0.1.3 ([#45](https://github.com/cwrau/capi-shell-mcp/issues/45)) ([396898d](https://github.com/cwrau/capi-shell-mcp/commit/396898d0814846e9b69a281747c41d67233fda10))
+* **deps:** update module github.com/itchyny/gojq to v0.12.20 ([#43](https://github.com/cwrau/capi-shell-mcp/issues/43)) ([03d5a0f](https://github.com/cwrau/capi-shell-mcp/commit/03d5a0f39e86f726e69df578d91f8d05f1a2ceb2))
+* **deps:** update module golang.org/x/sync to v0.25.0 ([#44](https://github.com/cwrau/capi-shell-mcp/issues/44)) ([84f440f](https://github.com/cwrau/capi-shell-mcp/commit/84f440fe933d484e0e6e5151b967e91a0816b123))
+* keep nothing fetched under the old config across a reload ([0d8b914](https://github.com/cwrau/capi-shell-mcp/commit/0d8b914b8c8610e2bc80ad4e129613468cd0a634))
+
 ## [2.1.0](https://github.com/cwrau/capi-shell-mcp/compare/v2.0.0...v2.1.0) (2026-10-23)
 
 
