@@ -9,11 +9,27 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
 )
 
 // procNetTCP is where the kernel lists TCP sockets with their owners; a
 // variable so tests can point it at a fixture.
-var procNetTCP = "/proc/net/tcp"
+//
+// It is read by the server goroutines of the proxy, so tests that point it
+// elsewhere go through setProcNetTCP instead of assigning it.
+var procNetTCP = func() *atomic.Pointer[string] {
+	var p atomic.Pointer[string]
+	path := "/proc/net/tcp"
+	p.Store(&path)
+	return &p
+}()
+
+// setProcNetTCP points the socket table at path and returns what puts the
+// previous one back.
+func setProcNetTCP(path string) (restore func()) {
+	prev := procNetTCP.Swap(&path)
+	return func() { procNetTCP.Store(prev) }
+}
 
 type peerKey struct{}
 
@@ -52,7 +68,7 @@ func peerUID(c net.Conn) (int, error) {
 		return 0, fmt.Errorf("local address: %w", err)
 	}
 
-	f, err := os.Open(procNetTCP)
+	f, err := os.Open(*procNetTCP.Load())
 	if err != nil {
 		return 0, fmt.Errorf("reading socket table: %w", err)
 	}

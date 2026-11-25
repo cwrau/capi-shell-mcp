@@ -218,15 +218,14 @@ func TestRefusesConnectionsNotOwnedByThisUser(t *testing.T) {
 	good := p.URL("t", Prometheus) + "/api/v1/labels"
 	alert := p.URL("t", Alertmanager) + "/api/v2/alerts"
 
-	orig := procNetTCP
-	t.Cleanup(func() { procNetTCP = orig })
+	t.Cleanup(setProcNetTCP(*procNetTCP.Load()))
 
 	// A header and no matching row: the owner cannot be found.
 	empty := t.TempDir() + "/tcp"
 	if err := os.WriteFile(empty, []byte("  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	procNetTCP = empty
+	realTable := setProcNetTCP(empty)
 	for _, u := range []string{good, alert} {
 		if code, _ := do(t, http.MethodGet, u, "", nil); code != http.StatusNotFound {
 			t.Errorf("%s: unknown owner got %d, want 404", u, code)
@@ -235,7 +234,7 @@ func TestRefusesConnectionsNotOwnedByThisUser(t *testing.T) {
 
 	http.DefaultClient.CloseIdleConnections() // the owner is looked up once per connection
 	// The kernel's own table has the test's client sockets, owned by us.
-	procNetTCP = orig
+	realTable()
 	for _, u := range []string{good, alert} {
 		if code, _ := do(t, http.MethodGet, u, "", nil); code != http.StatusOK {
 			t.Errorf("%s: own connection got %d, want 200", u, code)
@@ -251,8 +250,7 @@ func TestPeerUIDReadsTheOwnerFromTheSocketTable(t *testing.T) {
 		return fmt.Sprintf("   0: %s %s %s 00000000:00000000 00:00000000 00000000  %d        0 12345 1 0000000000000000 100 0 0 10 0\n", local, remote, state, uid)
 	}
 	header := "  sl  local_address rem_address\n"
-	orig := procNetTCP
-	t.Cleanup(func() { procNetTCP = orig })
+	t.Cleanup(setProcNetTCP(*procNetTCP.Load()))
 	conn := fakeConn{
 		remote: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 40000},
 		local:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8080},
@@ -280,7 +278,7 @@ func TestPeerUIDReadsTheOwnerFromTheSocketTable(t *testing.T) {
 			if err := os.WriteFile(path, []byte(header+tc.table), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			procNetTCP = path
+			setProcNetTCP(path)
 			uid, err := peerUID(conn)
 			if tc.wantErr {
 				if err == nil {
