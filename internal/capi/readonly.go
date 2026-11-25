@@ -43,6 +43,12 @@ const (
 // connection or an action that happens to be reachable with GET.
 var readOnlySubresources = map[string]bool{"status": true, "scale": true, "log": true}
 
+// ReadOnlyRoleCoversSubresource reports whether the read-only role grants
+// the given subresource (as in "pods/log": "log"). Every other subresource,
+// even one that only answers GET, stays out: exec, attach, portforward and
+// proxy are code execution or network reach, not reading.
+func ReadOnlyRoleCoversSubresource(sub string) bool { return readOnlySubresources[sub] }
+
 // APIResourceLister is the part of a discovery client the read-only role
 // generation needs.
 type APIResourceLister interface {

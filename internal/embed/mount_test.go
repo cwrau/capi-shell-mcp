@@ -145,6 +145,13 @@ func TestMountToolsRoutesReadOnlyToolsToReadonlyCredentials(t *testing.T) {
 	}{
 		{tool: "resources_list", wantAdmin: 0, wantReadonly: 1},
 		{tool: "resources_delete", wantAdmin: 1, wantReadonly: 0},
+		// Reads, but through nodes/proxy and the kubevirt guest-info
+		// subresources, which the read-only role withholds.
+		{tool: "nodes_stats_summary", wantAdmin: 1, wantReadonly: 0},
+		{tool: "nodes_log", wantAdmin: 1, wantReadonly: 0},
+		{tool: "vm_guest_info", wantAdmin: 1, wantReadonly: 0},
+		// pods/log is in the role.
+		{tool: "pods_log", wantAdmin: 0, wantReadonly: 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.tool, func(t *testing.T) {

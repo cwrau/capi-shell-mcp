@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/cwrau/capi-shell-mcp/internal/capi"
+
 	kmcpapi "github.com/containers/kubernetes-mcp-server/pkg/api"
 	kmcpconfig "github.com/containers/kubernetes-mcp-server/pkg/config"
 	kmcpkube "github.com/containers/kubernetes-mcp-server/pkg/kubernetes"
@@ -63,8 +65,13 @@ func MountTools(ctx context.Context, ourServer *gosdkmcp.Server, resolver Target
 			}
 			mutated := mutate(tool)
 			readOnly := mutated.Tool.Annotations.ReadOnlyHint != nil && *mutated.Tool.Annotations.ReadOnlyHint
+			// A read-only tool whose reads need a subresource the read-only
+			// role withholds (nodes/proxy, kubevirt's guest info) cannot
+			// work as the read-only account. It keeps the read-only fan-out
+			// rules (it only reads, so prefixes are safe) but runs with
+			// admin credentials, which leaves the role itself tight.
 			handle := adminHandle
-			if readOnly {
+			if readOnly && !needsWithheldSubresource(mutated.RBAC) {
 				handle = readonlyHandle
 			}
 			goTool, handler, err := kmcp.ServerToolToGoSdkTool(handle, mutated)
@@ -81,4 +88,20 @@ func MountTools(ctx context.Context, ourServer *gosdkmcp.Server, resolver Target
 		provider.Invalidate()
 		readonlyProvider.Invalidate()
 	}, nil
+}
+
+// needsWithheldSubresource reports whether a tool declares, in its RBAC
+// metadata, a read on a subresource the generated read-only role does not
+// grant. Metadata that does not list requirements (none, unbounded) says
+// nothing either way, so the tool stays on the read-only account.
+func needsWithheldSubresource(rbac *kmcpapi.RBACMetadata) bool {
+	if rbac == nil || rbac.Bounded == nil {
+		return false
+	}
+	for _, req := range rbac.Bounded.Requirements {
+		if res := req.Target.Resource; res != nil && res.Subresource != "" && !capi.ReadOnlyRoleCoversSubresource(res.Subresource) {
+			return true
+		}
+	}
+	return false
 }
