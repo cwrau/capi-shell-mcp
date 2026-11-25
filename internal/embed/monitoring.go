@@ -98,10 +98,12 @@ func (m *monitoring) reach(ctx context.Context, target string) (*url.URL, http.R
 // config is the server configuration the upstream handlers see for one
 // target: the defaults plus the URLs of that target's monitoring services.
 func (m *monitoring) config(ctx context.Context, target string) (*kmcpconfig.Config, error) {
+	// Held throughout, reset too: the URLs below name listeners that reset
+	// closes, so a config built across a reset would be cached with an address
+	// nothing listens on any more.
 	m.mu.Lock()
-	cfg, ok := m.configs[target]
-	m.mu.Unlock()
-	if ok {
+	defer m.mu.Unlock()
+	if cfg, ok := m.configs[target]; ok {
 		return cfg, nil
 	}
 	// kubeconfig mode: with no bearer token in the admin kubeconfig nothing
@@ -127,9 +129,7 @@ tempo_url = %[7]q
 	if err != nil {
 		return nil, fmt.Errorf("embed: building monitoring config for target %s: %w", target, err)
 	}
-	m.mu.Lock()
 	m.configs[target] = cfg
-	m.mu.Unlock()
 	return cfg, nil
 }
 
@@ -202,9 +202,9 @@ func (m *monitoring) mount(tool kmcpapi.ServerTool) (*mcp.Tool, mcp.ToolHandler)
 // next call.
 func (m *monitoring) reset() {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.configs = map[string]*kmcpconfig.Config{}
 	m.upstream = map[string]upstreamEntry{}
-	m.mu.Unlock()
 	m.proxy.Reset()
 }
 

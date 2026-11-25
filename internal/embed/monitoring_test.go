@@ -4,14 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	kmcpapi "github.com/containers/kubernetes-mcp-server/pkg/api"
 	kmcpconfig "github.com/containers/kubernetes-mcp-server/pkg/config"
+	metricstoolset "github.com/containers/kubernetes-mcp-server/pkg/toolsets/metrics"
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -256,5 +260,50 @@ func TestMonitoringBuildsNothingForAnUnknownTarget(t *testing.T) {
 	m.mu.Unlock()
 	if configs != 0 || m.proxy.Listeners() != 0 {
 		t.Errorf("%d configs and %d listeners built for targets that do not exist, want none", configs, m.proxy.Listeners())
+	}
+}
+
+// A reload that lands while a config is being built must not leave a config
+// cached whose Alertmanager address was closed by that reload.
+func TestMonitoringConfigIsNeverCachedWithAClosedAddress(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	resolver := &fakeResolver{}
+	m, err := newMonitoring(ctx, resolver, newCapiProvider(resolver, kmcpconfig.New(), true))
+	if err != nil {
+		t.Fatalf("newMonitoring: %v", err)
+	}
+
+	const target = "prod/ctx-a/ns/c1"
+	for round := range 500 {
+		var wg sync.WaitGroup
+		wg.Add(16)
+		for range 8 {
+			go func() { defer wg.Done(); _, _ = m.config(ctx, target) }()
+		}
+		for range 8 {
+			go func() { defer wg.Done(); m.reset() }()
+		}
+		wg.Wait()
+
+		m.mu.Lock()
+		cfg, cached := m.configs[target]
+		m.mu.Unlock()
+		if !cached {
+			continue
+		}
+		ext, ok := cfg.GetToolsetConfig(metricstoolset.ToolsetName)
+		if !ok {
+			t.Fatal("cached config has no metrics settings")
+		}
+		u, err := url.Parse(ext.(*metricstoolset.Config).AlertmanagerURL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		conn, err := net.DialTimeout("tcp", u.Host, time.Second)
+		if err != nil {
+			t.Fatalf("round %d: the cached config points at %s, which is closed: %v", round, u.Host, err)
+		}
+		conn.Close()
 	}
 }
