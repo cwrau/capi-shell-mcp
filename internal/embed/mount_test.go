@@ -195,3 +195,63 @@ func TestMountToolsRoutesReadOnlyToolsToReadonlyCredentials(t *testing.T) {
 		})
 	}
 }
+
+// A tool that reads with admin credentials takes exact targets, so it cannot
+// be broadcast, and refuses path arguments that would redirect its request.
+func TestAdminRoutedReadToolsNeedExactTargetsAndPlainNames(t *testing.T) {
+	session := connectedClient(t, &fakeResolver{err: errors.New("stop here")})
+	ctx := context.Background()
+
+	for tool, err := range session.Tools(ctx, nil) {
+		if err != nil {
+			t.Fatalf("Tools: %v", err)
+		}
+		if tool.Name != "nodes_stats_summary" && tool.Name != "pods_log" {
+			continue
+		}
+		schema, _ := tool.InputSchema.(map[string]any)
+		required, _ := schema["required"].([]any)
+		if got, want := containsAny(required, "clusters"), tool.Name == "nodes_stats_summary"; got != want {
+			t.Errorf("%s: clusters required = %v, want %v", tool.Name, got, want)
+		}
+	}
+
+	for _, name := range []string{"../pods/x", "a/b", "x/proxy/exec", "node?x=1", "UPPER", "", "-lead"} {
+		resolver := &fakeResolver{err: errors.New("stop here")}
+		s := connectedClient(t, resolver)
+		base := resolver.calls()
+		result, err := s.CallTool(ctx, &mcp.CallToolParams{
+			Name:      "nodes_stats_summary",
+			Arguments: map[string]any{"name": name, "clusters": []string{"prod/ctx-a/ns/c1"}},
+		})
+		if err != nil {
+			t.Fatalf("name %q: CallTool: %v", name, err)
+		}
+		text := ""
+		if len(result.Content) > 0 {
+			text, _ = result.Content[0].(*mcp.TextContent).Text, true
+		}
+		if !result.IsError || !strings.Contains(text, "plain resource name") {
+			t.Errorf("name %q: result %+v, want a refusal of the name", name, text)
+		}
+		if resolver.calls() != base {
+			t.Errorf("name %q: the target was resolved, the request was not refused first", name)
+		}
+	}
+}
+
+func TestAdminRoutedReadToolsAcceptOrdinaryNodeNames(t *testing.T) {
+	session := connectedClient(t, &fakeResolver{err: errors.New("stop here")})
+	for _, name := range []string{"node-1", "example-s4-default-qpfcs-4cc75-qp7jt", "worker-0.example.internal"} {
+		result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+			Name:      "nodes_stats_summary",
+			Arguments: map[string]any{"name": name, "clusters": []string{"prod/ctx-a/ns/c1"}},
+		})
+		if err != nil {
+			t.Fatalf("name %q: CallTool: %v", name, err)
+		}
+		if text := result.Content[0].(*mcp.TextContent).Text; strings.Contains(text, "plain resource name") {
+			t.Errorf("name %q was refused: %s", name, text)
+		}
+	}
+}

@@ -36,8 +36,11 @@ var monitoringToolsets = map[string]bool{
 
 type monitoring struct {
 	resolver TargetResolver
-	admin    *capiProvider
-	proxy    *monitorproxy.Proxy
+	// kube gives the upstream handlers the Kubernetes client they are handed.
+	// They only use it for HTTP (the URLs are set), so it is the read-only
+	// one: the admin credentials stay inside the proxy, behind its allowlist.
+	kube  *capiProvider
+	proxy *monitorproxy.Proxy
 
 	mu       sync.Mutex
 	configs  map[string]*kmcpconfig.Config
@@ -51,8 +54,8 @@ type upstreamEntry struct {
 }
 
 // newMonitoring starts the proxy, which runs until ctx ends.
-func newMonitoring(ctx context.Context, resolver TargetResolver, admin *capiProvider) (*monitoring, error) {
-	m := &monitoring{resolver: resolver, admin: admin, configs: map[string]*kmcpconfig.Config{}, upstream: map[string]upstreamEntry{}}
+func newMonitoring(ctx context.Context, resolver TargetResolver, kube *capiProvider) (*monitoring, error) {
+	m := &monitoring{resolver: resolver, kube: kube, configs: map[string]*kmcpconfig.Config{}, upstream: map[string]upstreamEntry{}}
 	proxy, err := monitorproxy.Start(ctx, m.reach)
 	if err != nil {
 		return nil, err
@@ -161,14 +164,19 @@ func (m *monitoring) mount(tool kmcpapi.ServerTool) (*mcp.Tool, mcp.ToolHandler)
 		}
 		target, _ := args[targetParameterName].(string)
 		delete(args, targetParameterName)
+		for _, p := range discoveryParams {
+			delete(args, p) // not offered, and not passed on if given anyway
+		}
 
+		// The target is resolved first, so that nothing is built or kept
+		// (config, listener) for one that does not exist.
+		k8s, err := m.kube.GetDerivedKubernetes(ctx, target)
+		if err != nil {
+			return errorResult(fmt.Sprintf("target %q: %v", target, err)), nil
+		}
 		cfg, err := m.config(ctx, target)
 		if err != nil {
 			return errorResult(err.Error()), nil
-		}
-		k8s, err := m.admin.GetDerivedKubernetes(ctx, target)
-		if err != nil {
-			return errorResult(fmt.Sprintf("target %q: %v", target, err)), nil
 		}
 		params := kmcpapi.ToolHandlerParams{
 			Context:          ctx,
@@ -187,6 +195,17 @@ func (m *monitoring) mount(tool kmcpapi.ServerTool) (*mcp.Tool, mcp.ToolHandler)
 		return kmcp.NewStructuredResult(result.Content, result.StructuredContent, result.Error), nil
 	}
 	return goTool, handler
+}
+
+// reset forgets what was built per cluster and closes the proxy's per
+// cluster listeners, after a configuration reload. They are made again on the
+// next call.
+func (m *monitoring) reset() {
+	m.mu.Lock()
+	m.configs = map[string]*kmcpconfig.Config{}
+	m.upstream = map[string]upstreamEntry{}
+	m.mu.Unlock()
+	m.proxy.Reset()
 }
 
 type toolRequest map[string]any

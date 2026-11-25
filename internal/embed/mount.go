@@ -58,7 +58,7 @@ func MountTools(ctx context.Context, ourServer *gosdkmcp.Server, resolver Target
 		TargetCompatibilityFiltersEnabled: false,
 	}
 
-	mon, err := newMonitoring(ctx, resolver, provider)
+	mon, err := newMonitoring(ctx, resolver, readonlyProvider)
 	if err != nil {
 		return nil, fmt.Errorf("embed: starting the monitoring proxy: %w", err)
 	}
@@ -84,19 +84,26 @@ func MountTools(ctx context.Context, ourServer *gosdkmcp.Server, resolver Target
 			readOnly := mutated.Tool.Annotations.ReadOnlyHint != nil && *mutated.Tool.Annotations.ReadOnlyHint
 			// A read-only tool whose reads need a subresource the read-only
 			// role withholds (nodes/proxy, kubevirt's guest info) cannot
-			// work as the read-only account. It keeps the read-only fan-out
-			// rules (it only reads, so prefixes are safe) but runs with
-			// admin credentials, which leaves the role itself tight.
+			// work as the read-only account. It runs with admin credentials
+			// instead, which leaves the role itself tight, and is treated
+			// like every tool that has them (see below).
 			handle := adminHandle
-			if readOnly && !needsWithheldSubresource(mutated.RBAC) {
+			adminForRead := readOnly && needsWithheldSubresource(mutated.RBAC)
+			if readOnly && !adminForRead {
 				handle = readonlyHandle
 			}
 			goTool, handler, err := kmcp.ServerToolToGoSdkTool(handle, mutated)
 			if err != nil {
 				return nil, fmt.Errorf("embed: converting tool %q: %w", mutated.Tool.Name, err)
 			}
+			if adminForRead {
+				// Admin credentials: exact targets only, like every other
+				// tool that has them, and path arguments that cannot
+				// redirect the request.
+				handler = onlyPlainNames(handler)
+			}
 			if mutated.IsClusterAware() {
-				goTool, handler = wrapFanOut(goTool, handler, resolver, readOnly)
+				goTool, handler = wrapFanOut(goTool, handler, resolver, readOnly && !adminForRead)
 			}
 			ourServer.AddTool(goTool, handler)
 		}
@@ -104,6 +111,7 @@ func MountTools(ctx context.Context, ourServer *gosdkmcp.Server, resolver Target
 	return func() {
 		provider.Invalidate()
 		readonlyProvider.Invalidate()
+		mon.reset()
 	}, nil
 }
 

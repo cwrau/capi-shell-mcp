@@ -10,6 +10,9 @@ import (
 	"sync"
 	"testing"
 
+	kmcpapi "github.com/containers/kubernetes-mcp-server/pkg/api"
+	kmcpconfig "github.com/containers/kubernetes-mcp-server/pkg/config"
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -97,6 +100,7 @@ func TestMonitoringToolsTakeClustersAndQueryThatClustersPrometheus(t *testing.T)
 	resolver := &fakeResolver{
 		targets:        []string{monitoringTarget},
 		kubeconfigByID: map[string]string{monitoringTarget: monitoringKubeconfig(api.URL)},
+		readonlyByID:   map[string]string{monitoringTarget: monitoringKubeconfig(api.URL)},
 	}
 	session := connectedClient(t, resolver)
 	ctx := context.Background()
@@ -219,5 +223,38 @@ func TestMonitoringToolsDoNotAskForInstanceNames(t *testing.T) {
 		if seen[name] {
 			t.Errorf("%s is mounted, but nothing here has LokiStack/TempoStack instances to list", name)
 		}
+	}
+}
+
+// A target that does not exist gets no configuration and no listener, however
+// many of them are asked for.
+func TestMonitoringBuildsNothingForAnUnknownTarget(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	resolver := &fakeResolver{err: fmt.Errorf("no such cluster")}
+	m, err := newMonitoring(ctx, resolver, newCapiProvider(resolver, kmcpconfig.New(), true))
+	if err != nil {
+		t.Fatalf("newMonitoring: %v", err)
+	}
+	_, handler := m.mount(kmcpapi.ServerTool{
+		Tool: kmcpapi.Tool{Name: "get_alerts", InputSchema: &jsonschema.Schema{Type: "object"}},
+		Handler: func(kmcpapi.ToolHandlerParams) (*kmcpapi.ToolCallResult, error) {
+			t.Error("the upstream handler ran for an unknown target")
+			return nil, nil
+		},
+	})
+
+	for i := range 20 {
+		args, _ := json.Marshal(map[string]any{"cluster": fmt.Sprintf("nope/ctx/ns/c%d", i)})
+		result, err := handler(ctx, &mcp.CallToolRequest{Params: &mcp.CallToolParamsRaw{Name: "get_alerts", Arguments: args}})
+		if err != nil || !result.IsError {
+			t.Fatalf("call %d: %+v, %v; want an error result", i, result, err)
+		}
+	}
+	m.mu.Lock()
+	configs := len(m.configs)
+	m.mu.Unlock()
+	if configs != 0 || m.proxy.Listeners() != 0 {
+		t.Errorf("%d configs and %d listeners built for targets that do not exist, want none", configs, m.proxy.Listeners())
 	}
 }
