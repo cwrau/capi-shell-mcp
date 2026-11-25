@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.0.1](https://github.com/cwrau/capi-shell-mcp/compare/v3.0.0...v3.0.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* harden admin-routed read tools and the monitoring tools ([0ea413c](https://github.com/cwrau/capi-shell-mcp/commit/0ea413c9bac6e315dff1823001ebdeff77124a79))
+* match the whole connection to find who calls the monitoring proxy ([e75ac79](https://github.com/cwrau/capi-shell-mcp/commit/e75ac79fe273f1d81496b36d717248dbc8401bd9))
+
 ## [3.0.0](https://github.com/cwrau/capi-shell-mcp/compare/v2.1.0...v3.0.0) (2026-11-25)
 
 
