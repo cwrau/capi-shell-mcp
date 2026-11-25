@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.1.0](https://github.com/cwrau/capi-shell-mcp/compare/v3.0.2...v3.1.0) (2026-11-25)
+
+
+### Features
+
+* give the monitoring tools the read-only fan-out rules ([1ab20ae](https://github.com/cwrau/capi-shell-mcp/commit/1ab20aefe852ce71ebf97d87df852ab39ef9789a))
+
+
+### Bug Fixes
+
+* read the proxy's socket table path atomically ([8470839](https://github.com/cwrau/capi-shell-mcp/commit/847083955e4daacdde00d8a52feb6cb8c5f28946))
+* stop the toolsets probing every cluster when the daemon starts ([01d0839](https://github.com/cwrau/capi-shell-mcp/commit/01d0839559d8301c816424f7d95723d2d068d279))
+* wait for the API server to answer through a new tunnel ([b09af60](https://github.com/cwrau/capi-shell-mcp/commit/b09af60c632b561a29bd090ba1a797b3403f611b))
+
 ## [3.0.2](https://github.com/cwrau/capi-shell-mcp/compare/v3.0.1...v3.0.2) (2026-11-25)
 
 
