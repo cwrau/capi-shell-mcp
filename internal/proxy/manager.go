@@ -65,6 +65,11 @@ type Manager struct {
 	spawnProcess   ProcessSpawner
 	isUnderSystemd func() bool
 
+	// Readiness checking, see SetReadiness. A nil probe checks nothing.
+	probe        ProbeFunc
+	readyTimeout time.Duration
+	sleep        func(ctx context.Context, d time.Duration) error // tests only
+
 	mu             sync.Mutex
 	processEntries map[string]*processEntry
 	group          singleflight.Group
@@ -94,10 +99,18 @@ func IsUnderSystemd() bool {
 func (m *Manager) EnsureProxy(ctx context.Context, apiServerIP, apiServerPort, sshuttleHost string, ttl time.Duration) error {
 	key := targetKey(apiServerIP, apiServerPort)
 	_, err, _ := m.group.Do(key, func() (any, error) {
+		var err error
 		if m.isUnderSystemd() {
-			return nil, m.ensureSystemdProxy(ctx, apiServerIP, apiServerPort, sshuttleHost, ttl)
+			err = m.ensureSystemdProxy(ctx, apiServerIP, apiServerPort, sshuttleHost, ttl)
+		} else {
+			err = m.ensureProcessProxy(key, apiServerIP, apiServerPort, sshuttleHost, ttl)
 		}
-		return nil, m.ensureProcessProxy(key, apiServerIP, apiServerPort, sshuttleHost, ttl)
+		if err != nil {
+			return nil, err
+		}
+		// The tunnel is up when its unit or process is; it works when the API
+		// server answers through it. Those are not the same moment.
+		return nil, m.waitUntilReachable(ctx, apiServerIP, apiServerPort)
 	})
 	return err
 }

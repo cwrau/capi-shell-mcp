@@ -43,6 +43,7 @@ func run() error {
 
 	execer := shell.OSExecer{}
 	proxyMgr := proxy.New(proxy.RealClock{}, execer, proxy.DefaultSpawnProcess, proxy.IsUnderSystemd)
+	proxyMgr.SetReadiness(proxy.DialProbe, proxy.DefaultReadyTimeout)
 	// Only directly-spawned (non-systemd) tunnels need this: systemd-managed
 	// ones are meant to outlive the daemon (see proxy.Manager's docs).
 	defer proxyMgr.KillAllProcessProxies()
