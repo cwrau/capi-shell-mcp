@@ -32,19 +32,25 @@ func peerContext(ctx context.Context, c net.Conn) context.Context {
 }
 
 // peerUID is the user id that owns the client's end of a loopback IPv4
-// connection, from the client's socket entry in /proc/net/tcp: the one whose
-// local address is this connection's remote address. Sockets cannot be told
-// apart by address alone (any local user can see the listeners and connect
-// to them), so who is calling has to be asked of the kernel.
+// connection, from the client's socket entry in /proc/net/tcp: the
+// established one that has this connection's remote address as its local
+// address and this connection's local address as its remote one.
+//
+// Sockets cannot be told apart by address alone (any local user can see the
+// listeners and connect to them), so who is calling has to be asked of the
+// kernel. And the local address alone is not unique: two sockets may share a
+// local address and port as long as they go to different places, so only the
+// whole pair identifies the connection. More than one match, or none, is an
+// error rather than a guess.
 func peerUID(c net.Conn) (int, error) {
-	remote, ok := c.RemoteAddr().(*net.TCPAddr)
-	if !ok || remote.IP.To4() == nil {
-		return 0, errors.New("peer is not an IPv4 TCP address")
+	client, err := procAddress(c.RemoteAddr())
+	if err != nil {
+		return 0, fmt.Errorf("peer address: %w", err)
 	}
-	ip := remote.IP.To4()
-	// The kernel prints the address as the host-order word of the IP, which
-	// on little-endian machines reads backwards.
-	want := fmt.Sprintf("%02X%02X%02X%02X:%04X", ip[3], ip[2], ip[1], ip[0], remote.Port)
+	server, err := procAddress(c.LocalAddr())
+	if err != nil {
+		return 0, fmt.Errorf("local address: %w", err)
+	}
 
 	f, err := os.Open(procNetTCP)
 	if err != nil {
@@ -53,22 +59,40 @@ func peerUID(c net.Conn) (int, error) {
 	defer f.Close()
 	sc := bufio.NewScanner(f)
 	sc.Scan() // header
+	uid, found := 0, 0
 	for sc.Scan() {
 		// sl local_address rem_address st tx:rx tr:when retrnsmt uid timeout inode
 		fields := strings.Fields(sc.Text())
-		if len(fields) < 8 || !strings.EqualFold(fields[1], want) {
+		if len(fields) < 8 || fields[3] != "01" || !strings.EqualFold(fields[1], client) || !strings.EqualFold(fields[2], server) {
 			continue
 		}
-		var uid int
 		if _, err := fmt.Sscanf(fields[7], "%d", &uid); err != nil {
 			return 0, fmt.Errorf("parsing socket owner %q: %w", fields[7], err)
 		}
-		return uid, nil
+		found++
 	}
 	if err := sc.Err(); err != nil {
 		return 0, err
 	}
-	return 0, errors.New("the peer's socket is not in the socket table")
+	switch found {
+	case 0:
+		return 0, errors.New("the peer's socket is not in the socket table")
+	case 1:
+		return uid, nil
+	}
+	return 0, fmt.Errorf("%d sockets match the connection, refusing to guess", found)
+}
+
+// procAddress writes an IPv4 TCP address the way /proc/net/tcp does: the
+// host-order word of the IP, which on little-endian machines reads
+// backwards, and the port, both in hex.
+func procAddress(a net.Addr) (string, error) {
+	tcp, ok := a.(*net.TCPAddr)
+	if !ok || tcp == nil || tcp.IP.To4() == nil {
+		return "", errors.New("not an IPv4 TCP address")
+	}
+	ip := tcp.IP.To4()
+	return fmt.Sprintf("%02X%02X%02X%02X:%04X", ip[3], ip[2], ip[1], ip[0], tcp.Port), nil
 }
 
 // onlyThisUser refuses requests from connections that are not owned by the

@@ -99,7 +99,7 @@ type Proxy struct {
 	srv      *http.Server
 
 	mu    sync.Mutex
-	bound map[string]net.Listener // host-addressed listeners, see addressFor
+	bound map[string]boundServer // host-addressed listeners, see addressFor
 	done  <-chan struct{}
 }
 
@@ -113,7 +113,7 @@ func Start(ctx context.Context, upstream Upstream) (*Proxy, error) {
 	if err != nil {
 		return nil, fmt.Errorf("monitorproxy: listening: %w", err)
 	}
-	p := &Proxy{secret: hex.EncodeToString(raw[:]), upstream: upstream, ln: ln, bound: map[string]net.Listener{}, done: ctx.Done()}
+	p := &Proxy{secret: hex.EncodeToString(raw[:]), upstream: upstream, ln: ln, bound: map[string]boundServer{}, done: ctx.Done()}
 	p.srv = &http.Server{Handler: onlyThisUser(p), ConnContext: peerContext, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = p.srv.Serve(ln) }()
 	go func() {
@@ -146,8 +146,11 @@ func (p *Proxy) addressFor(target, backendName string) string {
 	key := backendName + "/" + target
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if ln, ok := p.bound[key]; ok {
-		return ln.Addr().String()
+	if b, ok := p.bound[key]; ok {
+		return b.addr
+	}
+	if len(p.bound) >= maxBoundListeners {
+		return "127.0.0.1:0" // cannot be reached: the call fails with a connection error
 	}
 	var ln net.Listener
 	for range 8 {
@@ -174,12 +177,35 @@ func (p *Proxy) addressFor(target, backendName string) string {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	go func() { _ = srv.Serve(ln) }()
-	p.bound[key] = ln
+	p.bound[key] = boundServer{addr: ln.Addr().String(), srv: srv}
 	go func() {
 		<-p.done
 		_ = srv.Close()
 	}()
 	return ln.Addr().String()
+}
+
+// maxBoundListeners bounds the listeners of the host-addressed backends, one
+// per cluster that is asked about. It is far above the number of clusters.
+const maxBoundListeners = 256
+
+type boundServer struct {
+	addr string
+	srv  *http.Server
+}
+
+// Reset closes the host-addressed listeners, whose addresses callers have
+// kept in URLs from URL: after a reset those must be asked for again. The
+// daemon does this when its configuration is reloaded, so that listeners of
+// clusters that are gone do not stay.
+func (p *Proxy) Reset() {
+	p.mu.Lock()
+	old := p.bound
+	p.bound = map[string]boundServer{}
+	p.mu.Unlock()
+	for _, b := range old {
+		_ = b.srv.Close()
+	}
 }
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -265,4 +291,11 @@ func (b backend) allows(method, endpoint string) bool {
 		}
 	}
 	return false
+}
+
+// Listeners is how many host-addressed listeners are open.
+func (p *Proxy) Listeners() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.bound)
 }

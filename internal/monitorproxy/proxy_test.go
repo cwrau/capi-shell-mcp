@@ -2,6 +2,7 @@ package monitorproxy
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -243,29 +244,61 @@ func TestRefusesConnectionsNotOwnedByThisUser(t *testing.T) {
 }
 
 func TestPeerUIDReadsTheOwnerFromTheSocketTable(t *testing.T) {
-	table := t.TempDir() + "/tcp"
-	// 127.0.0.1:40000 owned by uid 4242 (0100007F is 127.0.0.1 backwards, 9C40 is 40000).
-	row := "   0: 0100007F:9C40 0100007F:1F90 01 00000000:00000000 00:00000000 00000000  4242        0 12345 1 0000000000000000 100 0 0 10 0\n"
-	if err := os.WriteFile(table, []byte("  sl  local_address rem_address\n"+row), 0o600); err != nil {
-		t.Fatal(err)
+	// The client 127.0.0.1:40000 (0100007F is 127.0.0.1 backwards, 9C40 is
+	// 40000) connected to the listener 127.0.0.1:8080 (1F90), state 01
+	// (established), owned by uid 4242.
+	row := func(local, remote, state string, uid int) string {
+		return fmt.Sprintf("   0: %s %s %s 00000000:00000000 00:00000000 00000000  %d        0 12345 1 0000000000000000 100 0 0 10 0\n", local, remote, state, uid)
 	}
+	header := "  sl  local_address rem_address\n"
 	orig := procNetTCP
-	procNetTCP = table
 	t.Cleanup(func() { procNetTCP = orig })
-
-	uid, err := peerUID(fakeConn{&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 40000}})
-	if err != nil || uid != 4242 {
-		t.Errorf("peerUID = %d, %v; want 4242", uid, err)
+	conn := fakeConn{
+		remote: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 40000},
+		local:  &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8080},
 	}
-	if _, err := peerUID(fakeConn{&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 40001}}); err == nil {
-		t.Error("an unlisted socket was given an owner")
+
+	for name, tc := range map[string]struct {
+		table   string
+		wantUID int
+		wantErr bool
+	}{
+		"the one matching connection": {table: row("0100007F:9C40", "0100007F:1F90", "01", 4242), wantUID: 4242},
+		// Another user's socket with the same local address but going elsewhere
+		// must not be taken for the client's.
+		"same local address, other peer first": {
+			table:   row("0100007F:9C40", "0100007F:0050", "01", 0) + row("0100007F:9C40", "0100007F:1F90", "01", 4242),
+			wantUID: 4242,
+		},
+		"same local address, other peer only": {table: row("0100007F:9C40", "0100007F:0050", "01", 0), wantErr: true},
+		"not established":                     {table: row("0100007F:9C40", "0100007F:1F90", "06", 4242), wantErr: true},
+		"no such socket":                      {table: row("0100007F:9C41", "0100007F:1F90", "01", 4242), wantErr: true},
+		"more than one match":                 {table: row("0100007F:9C40", "0100007F:1F90", "01", 4242) + row("0100007F:9C40", "0100007F:1F90", "01", 0), wantErr: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := t.TempDir() + "/tcp"
+			if err := os.WriteFile(path, []byte(header+tc.table), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			procNetTCP = path
+			uid, err := peerUID(conn)
+			if tc.wantErr {
+				if err == nil {
+					t.Errorf("peerUID = %d, want an error", uid)
+				}
+				return
+			}
+			if err != nil || uid != tc.wantUID {
+				t.Errorf("peerUID = %d, %v; want %d", uid, err, tc.wantUID)
+			}
+		})
 	}
 }
 
-type fakeConn struct{ remote net.Addr }
+type fakeConn struct{ remote, local net.Addr }
 
 func (c fakeConn) RemoteAddr() net.Addr           { return c.remote }
-func (fakeConn) LocalAddr() net.Addr              { return nil }
+func (c fakeConn) LocalAddr() net.Addr            { return c.local }
 func (fakeConn) Read([]byte) (int, error)         { return 0, io.EOF }
 func (fakeConn) Write(b []byte) (int, error)      { return len(b), nil }
 func (fakeConn) Close() error                     { return nil }
@@ -296,5 +329,32 @@ func TestTempoReadEndpointsOnly(t *testing.T) {
 	want := "GET /api/v1/namespaces/monitoring/services/grafana-tempo:3200/proxy/api/search?q=%7B%7D"
 	if len(api.requests) == 0 || api.requests[0] != want {
 		t.Errorf("first upstream request = %v, want %s", api.requests, want)
+	}
+}
+
+func TestResetClosesTheHostAddressedListeners(t *testing.T) {
+	api := newFakeAPIServer(t)
+	p := startProxy(t, api)
+
+	first := p.URL("kc/ctx/ns/c1", Alertmanager)
+	if code, _ := do(t, http.MethodGet, first+"/api/v2/alerts", "", nil); code != http.StatusOK {
+		t.Fatalf("before the reset got %d, want 200", code)
+	}
+	if p.Listeners() != 1 {
+		t.Fatalf("%d listeners, want 1", p.Listeners())
+	}
+
+	p.Reset()
+	if p.Listeners() != 0 {
+		t.Errorf("%d listeners after the reset, want 0", p.Listeners())
+	}
+	http.DefaultClient.CloseIdleConnections()
+	if _, err := http.Get(first + "/api/v2/alerts"); err == nil {
+		t.Error("the old address still answers after the reset")
+	}
+
+	// Asked for again, it works.
+	if code, _ := do(t, http.MethodGet, p.URL("kc/ctx/ns/c1", Alertmanager)+"/api/v2/alerts", "", nil); code != http.StatusOK {
+		t.Errorf("after the reset got %d, want 200", code)
 	}
 }
