@@ -8,7 +8,6 @@ import (
 
 	kmcpapi "github.com/containers/kubernetes-mcp-server/pkg/api"
 	kmcpconfig "github.com/containers/kubernetes-mcp-server/pkg/config"
-	kmcpkube "github.com/containers/kubernetes-mcp-server/pkg/kubernetes"
 	kmcp "github.com/containers/kubernetes-mcp-server/pkg/mcp"
 	"github.com/containers/kubernetes-mcp-server/pkg/toolsets"
 	gosdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -53,7 +52,7 @@ func MountTools(ctx context.Context, ourServer *gosdkmcp.Server, resolver Target
 	// GVK discovery, so tools stay visible regardless of which CRDs happen
 	// to be installed on any one target.
 	toolsetContext := kmcpapi.ToolsetContext{
-		Inspector:                         kmcpkube.NewClusterInspector(provider),
+		Inspector:                         noInspector{},
 		Config:                            cfg,
 		TargetCompatibilityFiltersEnabled: false,
 	}

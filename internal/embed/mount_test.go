@@ -255,3 +255,27 @@ func TestAdminRoutedReadToolsAcceptOrdinaryNodeNames(t *testing.T) {
 		}
 	}
 }
+
+// Mounting the tools must not touch any cluster: the toolsets' own startup
+// checks (the Perses check of the metrics toolset) would otherwise fetch a
+// kubeconfig, start a tunnel and call the API of every cluster, all at once,
+// and the daemon could not start while any cluster's credentials were stale.
+func TestMountToolsDoesNotTouchAnyCluster(t *testing.T) {
+	resolver := &fakeResolver{targets: []string{"prod/ctx-a/ns/c1", "prod/ctx-a/ns/c2"}}
+	srv := mcp.NewServer(&mcp.Implementation{Name: "test", Version: "v0.0.1"}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if _, err := MountTools(ctx, srv, resolver); err != nil {
+		t.Fatalf("MountTools: %v", err)
+	}
+	if got := resolver.listTargetsCallCount(); got != 0 {
+		t.Errorf("mounting listed the clusters %d times, want 0", got)
+	}
+	if got := resolver.calls(); got != 0 {
+		t.Errorf("mounting resolved %d admin kubeconfigs, want 0", got)
+	}
+	if got := resolver.readonlyCallCount(); got != 0 {
+		t.Errorf("mounting resolved %d read-only kubeconfigs, want 0", got)
+	}
+}
