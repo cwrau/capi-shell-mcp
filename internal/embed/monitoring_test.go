@@ -109,7 +109,8 @@ func TestMonitoringToolsTakeClustersAndQueryThatClustersPrometheus(t *testing.T)
 	session := connectedClient(t, resolver)
 	ctx := context.Background()
 
-	// The tool is per cluster now: "clusters" is offered, and required.
+	// The tool is per cluster now: "clusters" is offered, like on the other
+	// read tools.
 	var schema map[string]any
 	for tool, err := range session.Tools(ctx, nil) {
 		if err != nil {
@@ -125,8 +126,8 @@ func TestMonitoringToolsTakeClustersAndQueryThatClustersPrometheus(t *testing.T)
 	if props, _ := schema["properties"].(map[string]any); props["clusters"] == nil {
 		t.Errorf("list_metrics has no clusters parameter: %v", schema)
 	}
-	if required, _ := schema["required"].([]any); !containsAny(required, "clusters") {
-		t.Errorf("clusters is not required for list_metrics: %v", required)
+	if required, _ := schema["required"].([]any); containsAny(required, "clusters") {
+		t.Errorf("clusters is required for list_metrics, but it is a read tool: omitting it means every cluster (%v)", required)
 	}
 
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{
@@ -305,5 +306,50 @@ func TestMonitoringConfigIsNeverCachedWithAClosedAddress(t *testing.T) {
 			t.Fatalf("round %d: the cached config points at %s, which is closed: %v", round, u.Host, err)
 		}
 		conn.Close()
+	}
+}
+
+// A read tool without "clusters" runs for every known cluster, and each of
+// them still goes through the proxy to its own API server.
+func TestMonitoringToolsWithoutClustersQueryEveryClusterThroughTheProxy(t *testing.T) {
+	apiOne, apiTwo := newRecordingAPIServer(t), newRecordingAPIServer(t)
+	resolver := &fakeResolver{
+		targets: []string{"prod/ctx-a/ns/c1", "prod/ctx-a/ns/c2"},
+		kubeconfigByID: map[string]string{
+			"prod/ctx-a/ns/c1": monitoringKubeconfig(apiOne.URL),
+			"prod/ctx-a/ns/c2": monitoringKubeconfig(apiTwo.URL),
+		},
+		readonlyByID: map[string]string{
+			"prod/ctx-a/ns/c1": monitoringKubeconfig(apiOne.URL),
+			"prod/ctx-a/ns/c2": monitoringKubeconfig(apiTwo.URL),
+		},
+	}
+	session := connectedClient(t, resolver)
+
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "list_metrics",
+		Arguments: map[string]any{"name_regex": "node_.*"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	text := result.Content[0].(*mcp.TextContent).Text
+	if result.IsError {
+		t.Fatalf("list_metrics failed: %s", text)
+	}
+	var perCluster []struct{ Cluster string }
+	if err := json.Unmarshal([]byte(text), &perCluster); err != nil || len(perCluster) != 2 {
+		t.Fatalf("results = %s (%v), want one per known cluster", text, err)
+	}
+	for name, api := range map[string]*recordingAPIServer{"c1": apiOne, "c2": apiTwo} {
+		proxied := false
+		for _, p := range api.seen() {
+			if strings.Contains(p, "/services/kube-prometheus-stack-prometheus:http-web/proxy/api/v1/") {
+				proxied = true
+			}
+		}
+		if !proxied {
+			t.Errorf("%s: its API server never saw the Prometheus service proxy request: %v", name, api.seen())
+		}
 	}
 }

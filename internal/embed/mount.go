@@ -73,10 +73,10 @@ func MountTools(ctx context.Context, ourServer *gosdkmcp.Server, resolver Target
 					continue
 				}
 				goTool, handler := mon.mount(tool)
-				// Read-only like the rest, but exact targets are required:
-				// most clusters run no monitoring stack, so a broadcast
-				// would be mostly errors.
-				goTool, handler = wrapFanOut(goTool, handler, resolver, false)
+				// Read-only like the other read tools: prefixes, and no
+				// "clusters" for every cluster. Clusters without the stack
+				// answer with an error of their own.
+				goTool, handler = wrapFanOut(goTool, handler, resolver, true)
 				ourServer.AddTool(goTool, handler)
 				continue
 			}
