@@ -58,9 +58,26 @@ func MountTools(ctx context.Context, ourServer *gosdkmcp.Server, resolver Target
 		TargetCompatibilityFiltersEnabled: false,
 	}
 
+	mon, err := newMonitoring(ctx, resolver, provider)
+	if err != nil {
+		return nil, fmt.Errorf("embed: starting the monitoring proxy: %w", err)
+	}
+
 	for _, ts := range toolsets.Toolsets() {
 		for _, tool := range ts.GetTools(ctx, toolsetContext) {
 			if tool.IsTargetListProvider() {
+				continue
+			}
+			if monitoringToolsets[ts.GetName()] {
+				if isInstanceListing(tool) {
+					continue
+				}
+				goTool, handler := mon.mount(tool)
+				// Read-only like the rest, but exact targets are required:
+				// most clusters run no monitoring stack, so a broadcast
+				// would be mostly errors.
+				goTool, handler = wrapFanOut(goTool, handler, resolver, false)
+				ourServer.AddTool(goTool, handler)
 				continue
 			}
 			mutated := mutate(tool)
