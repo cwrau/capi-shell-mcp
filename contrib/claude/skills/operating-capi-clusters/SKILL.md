@@ -11,6 +11,11 @@ capi-shell-mcp is the path to CAPI-managed workload clusters. Their API servers 
 
 capi-shell-mcp also embeds `kubernetes-mcp-server`'s full tool set (`pods_list`, `events_list`, `resources_get`, helm/tekton/kiali/kubevirt/netobserv/kcp tools, etc.) — those show up as regular tools alongside the ones below and take the exact same `clusters` parameter described here.
 
+Two groups of embedded tools differ:
+- **Metrics, alerts, logs and traces** (`list_metrics`, `execute_instant_query`, `execute_range_query`, `get_label_*`, `get_series`, `get_alerts`, `get_silences`, `loki_*`, `tempo_*`) query the monitoring stack inside each cluster, through the API server's service proxy with admin credentials and only GET-style read endpoints. They take `clusters` as full exact targets (required, no prefixes). They expect the default service names: `monitoring/kube-prometheus-stack-prometheus`, `monitoring/kube-prometheus-stack-alertmanager`, `monitoring/loki` and `monitoring/grafana-tempo`. A cluster without that stack, or with other names, answers with an error for that cluster. They take no `tempoNamespace`/`tempoName`/`lokiNamespace`/`lokiName`, and there are no `*_list_instances` tools. Query tools refuse a PromQL query with no label matcher (bare `up`): write `up{job=~".+"}`.
+- **Tools that read through node or kubevirt subresources** (`nodes_stats_summary`, `nodes_log`, `vm_guest_info`, `vm_console_screenshot`) only read, so they keep the read-only fan-out rules (prefixes allowed, omitted `clusters` means all), but they run with admin credentials, because the read-only role cannot reach `nodes/proxy`.
+- `kiali_*`, `kcp_*` and `configuration_view` have no per-cluster backend here and fail on `target ""`; don't use them.
+
 ## Target syntax
 
 Every tool takes a `clusters` array of composite target strings: `"kubeconfig/context/namespace/name"` (a workload cluster), or a shorter prefix — `"kubeconfig/context/namespace"` (whole namespace), `"kubeconfig/context"` (whole context), `"kubeconfig"` (whole kubeconfig) — which expands to every matching cluster. A kubeconfig entry is itself a valid target (pass it as the `name` segment when addressing the kubeconfig's own cluster, exactly like any workload cluster).
